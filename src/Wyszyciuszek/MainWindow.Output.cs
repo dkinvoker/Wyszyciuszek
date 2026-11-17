@@ -19,11 +19,7 @@ public sealed partial class MainWindow
     private async Task<(PatternDocument Doc, PatternAnalysis Analysis)?> SnapshotAsync()
     {
         if (Doc is not { HasPattern: true } d) return null;
-        var doc = new PatternDocument
-        {
-            Title = d.Title, Width = d.Width, Height = d.Height, Labels = d.Labels,
-            Palette = d.Palette.Select(p => p.Clone()).ToList(), Options = d.Options.Clone(), Print = d.Print.Clone(),
-        };
+        var doc = d.Snapshot(); // z liniami detali, kierunkami ściegu i kolorem tkaniny
         var an = AnalysisIsCurrent
             ? _analysis!
             : await Task.Run(() => PatternAnalysis.Compute(doc.Labels, doc.Width, doc.Height, doc.Palette.Count, doc.Options.LineSmoothness));
@@ -36,12 +32,106 @@ public sealed partial class MainWindow
         var (doc, an) = snap;
         var path = await PickSaveAsync(doc.Title, "Dokument PDF", ".pdf");
         if (path is null) return;
+        var s = AppInfo.Settings;
+        double sx = s.CalibratePdf ? s.PrintScaleX : 1, sy = s.CalibratePdf ? s.PrintScaleY : 1;
         await RunExportAsync(path, () =>
         {
             using var fs = File.Create(path);
-            Exporters.WritePdf(doc, an, fs);
+            Exporters.WritePdf(doc, an, fs, sx, sy, AppInfo.Settings.MyThreads);
             return Task.CompletedTask;
         });
+    }
+
+    // ================================================================== kalibracja drukarki
+
+    /// <summary>
+    /// Kalibracja (jak w Kasetowniku): strona testowa z miarkami 100 mm, pomiar linijką, zapis korekty skali,
+    /// którą potem stosuje każdy wydruk (i opcjonalnie PDF).
+    /// </summary>
+    private async void CalibratePrinter_Click(object sender, RoutedEventArgs e)
+    {
+        var s = AppInfo.Settings;
+        NumberBox Box(string header) => new()
+        {
+            Header = header, Value = CalibrationPage.RulerMm, Minimum = 80, Maximum = 120, SmallChange = 0.5, LargeChange = 1,
+            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact, HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var horizontal = Box("Miarka pozioma (mm)");
+        var vertical = Box("Miarka pionowa (mm)");
+        var pdf = new CheckBox { Content = "Stosuj też w PDF (gdy PDF drukuję na tej samej drukarce)", IsChecked = s.CalibratePdf };
+        var status = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap, FontSize = 12, Foreground = Res("HaftTextDimBrush"),
+            Text = $"Obecna korekta: {s.PrintCalibrationText}",
+        };
+        var printTest = new Button { HorizontalAlignment = HorizontalAlignment.Stretch, Content = "1. Wydrukuj stronę testową" };
+        printTest.Click += async (_, _) =>
+        {
+            printTest.IsEnabled = false;
+            try
+            {
+                // strona testowa zawsze bez korekty — mierzymy, ile drukarka naprawdę drukuje
+                var r = await PrintService.PrintAsync(_hwnd, new CalibrationPage(), "Wyszyciuszek — kalibracja drukarki");
+                status.Text = r.Error ?? (r.Printed ? "Wydrukowano. Zmierz obie miarki i wpisz wyniki." : status.Text);
+            }
+            finally
+            {
+                printTest.IsEnabled = true;
+            }
+        };
+
+        var grid = new Grid { ColumnSpacing = 10 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        Grid.SetColumn(vertical, 1);
+        grid.Children.Add(horizontal);
+        grid.Children.Add(vertical);
+
+        var panel = new StackPanel { Spacing = 12, Width = 440 };
+        panel.Children.Add(new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap, FontSize = 13,
+            Text = "Drukarki często drukują odrobinę za mało albo za dużo (np. 98–99%), mimo skali 100%. Wydrukuj stronę " +
+                   "testową, zmierz linijką obie miarki (powinny mieć 100 mm) i wpisz wyniki — Wyszyciuszek będzie to " +
+                   "poprawiał przy każdym wydruku, żeby wzór miał dokładnie zadany rozmiar.",
+        });
+        panel.Children.Add(printTest);
+        panel.Children.Add(new TextBlock { Text = "2. Wpisz zmierzone długości:", FontSize = 13, Margin = new Thickness(0, 4, 0, 0) });
+        panel.Children.Add(grid);
+        panel.Children.Add(pdf);
+        panel.Children.Add(status);
+
+        var dlg = new ContentDialog
+        {
+            Title = "Kalibracja drukarki",
+            Content = panel,
+            PrimaryButtonText = "Zapisz kalibrację",
+            SecondaryButtonText = s.HasPrintCalibration ? "Usuń kalibrację" : "",
+            CloseButtonText = "Anuluj",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        var result = await ShowDialogAsync(dlg);
+        if (result == ContentDialogResult.Secondary)
+        {
+            s.PrintScaleX = s.PrintScaleY = 1;
+            AppInfo.SaveSettings();
+            UpdatePrintInfo();
+            ShowToast("Kalibracja usunięta", "Wydruki bez korekty skali.");
+            return;
+        }
+        if (result != ContentDialogResult.Primary) return;
+        double lh = horizontal.Value, lv = vertical.Value;
+        if (double.IsNaN(lh) || double.IsNaN(lv) || lh < 80 || lv < 80 || lh > 120 || lv > 120)
+        {
+            ShowToast("Nieprawidłowe pomiary", "Kalibracja nie została zapisana — wpisz długości miarek w milimetrach (ok. 100).", InfoBarSeverity.Warning);
+            return;
+        }
+        s.PrintScaleX = CalibrationPage.ScaleFromMeasurement(lh);
+        s.PrintScaleY = CalibrationPage.ScaleFromMeasurement(lv);
+        s.CalibratePdf = pdf.IsChecked == true;
+        AppInfo.SaveSettings();
+        UpdatePrintInfo();
+        ShowToast("Zapisano kalibrację drukarki", $"Korekta: {s.PrintCalibrationText}. Sprawdź kwadrat 1 cm na następnym wydruku.", InfoBarSeverity.Success);
     }
 
     private async void ExportPatternPng_Click(object sender, RoutedEventArgs e) => await ExportPngAsync(fullColor: false);
@@ -115,11 +205,12 @@ public sealed partial class MainWindow
     {
         if (_dialogOpen || await SnapshotAsync() is not { } snap) return;
         var (doc, an) = snap;
-        var composer = new PatternComposer(doc, an);
+        var composer = new PatternComposer(doc, an, AppInfo.Settings.MyThreads);
         BusyText.Text = "Drukuję…";
         try
         {
-            var result = await PrintService.PrintAsync(_hwnd, composer, doc.Title);
+            var s = AppInfo.Settings;
+            var result = await PrintService.PrintAsync(_hwnd, composer, doc.Title, s.PrintScaleX, s.PrintScaleY);
             if (result.Error is not null) ShowToast("Nie udało się wydrukować", result.Error, InfoBarSeverity.Error);
             else if (result.Printed)
                 ShowToast("Wysłano do drukarki", "Sprawdź kwadrat 1 cm w rogu kartki — jeśli ma inny rozmiar, wyłącz w drukarce „dopasuj do strony”.", InfoBarSeverity.Success);

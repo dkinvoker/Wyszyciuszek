@@ -55,6 +55,9 @@ public static class Simplifier
         MakeNamesUnique(palette);
         if (options.BackgroundAsFabric && LabelOps.DominantBorderLabel(labels, w, h) is var bg and >= 0 && bg < palette.Count)
             palette[bg].IsFabric = true;
+        // kolejność szycia: od spodu do wierzchu (tkanina pierwsza)
+        ct.ThrowIfCancellationRequested();
+        StitchOrder.Apply(labels, palette, StitchOrder.Layered(labels, w, h, palette));
         return new SimplifyResult(labels, w, h, palette);
     }
 

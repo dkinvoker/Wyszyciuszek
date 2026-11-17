@@ -2,6 +2,7 @@ using System.Globalization;
 using Microsoft.Graphics.Canvas;
 using Microsoft.UI.Xaml;
 using Wyszyciuszek.Canvas;
+using Wyszyciuszek.Core.Imaging;
 using Wyszyciuszek.Core.Output;
 using Wyszyciuszek.Core.Pattern;
 using Wyszyciuszek.Core.Project;
@@ -38,7 +39,8 @@ public partial class App : Application
     ///   Wyszyciuszek.exe obraz.jpg|projekt.wyszycie [--colors 6] [--detail 5] [--smooth 5] [--lines 5] [--quality 800]
     ///       [--my-threads] [--background] [--seed 1] [--width-cm 15] [--paper A4] [--hoop r15] [--mirror] [--no-numbers] [--no-arrows] [--no-legend] [--tint 0.25]
     ///       [--export-pdf wzor.pdf] [--export-png wzor.png] [--export-colors-png kolory.png] [--export-svg wzor.svg]
-    ///       [--export-project wzor.wyszycie] [--dpi 300]
+    ///       [--export-project wzor.wyszycie] [--export-calibration-pdf kalibracja.pdf] [--dpi 300] [--outline solid|dashed|dotted] [--gray]
+    ///       [--fill dense|medium|sketch] [--fabric "Len naturalny"|#C9B697]
     /// Błąd: kod wyjścia 1 i opis w %TEMP%\Wyszyciuszek-cli-error.txt.
     /// </summary>
     private static async Task RunCliAsync(string[] cli)
@@ -55,7 +57,7 @@ public partial class App : Application
             int? Int(string name) => int.TryParse(Arg(name), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
             double? Num(string name) => double.TryParse(Arg(name), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : null;
 
-            string[] flags = ["--mirror", "--no-numbers", "--no-legend", "--my-threads", "--background", "--no-arrows"];
+            string[] flags = ["--mirror", "--no-numbers", "--no-legend", "--my-threads", "--background", "--no-arrows", "--gray"];
             string? input = null;
             for (int i = 1; i < cli.Length; i++)
             {
@@ -63,6 +65,13 @@ public partial class App : Application
                 if (cli[i].StartsWith("--", StringComparison.Ordinal)) { i++; continue; }
                 input = cli[i];
                 break;
+            }
+            if (input is null && Arg("--export-calibration-pdf") is { } calOnly)
+            {
+                // sama strona kalibracji drukarki — bez wzoru (plik zamknięty przed wyjściem)
+                using (var fs = File.Create(Path.GetFullPath(calOnly)))
+                    Exporters.WritePdf(new CalibrationPage(), "Kalibracja drukarki", fs);
+                Environment.Exit(0);
             }
             if (input is null) throw new ArgumentException("Podaj obrazek albo projekt .wyszycie.");
             input = Path.GetFullPath(input);
@@ -101,15 +110,29 @@ public partial class App : Application
             if (Flag("--no-numbers")) p.Numbers = false;
             if (Flag("--no-legend")) p.Legend = false;
             if (Flag("--no-arrows")) p.StitchArrows = false;
+            if (Flag("--gray")) p.GrayLines = true;
+            if (Arg("--outline") is { } outline && Enum.TryParse<OutlineStyle>(outline, ignoreCase: true, out var os)) p.Outline = os;
+            if (Arg("--fill") is { } fill && Enum.TryParse<FillDensity>(fill, ignoreCase: true, out var fd)) p.Fill = fd;
+            if (Arg("--fabric") is { } fabricArg)
+            {
+                // kolor (#RRGGBB) albo nazwa materiału z listy, np. "Len naturalny"
+                var preset = Fabrics.All.FirstOrDefault(f => string.Equals(f.Name, fabricArg, StringComparison.CurrentCultureIgnoreCase));
+                Rgb? fabric = preset?.Color ?? (Rgb.TryParse(fabricArg.StartsWith('#') ? fabricArg : "#" + fabricArg, out var fc) ? fc : null);
+                if (fabric is { } fcolor)
+                {
+                    doc.FabricColor = fcolor;
+                    if (!doc.Palette.Any(e => e.IsFabric) && Fabrics.Closest(doc, fcolor) is var fi and >= 0) doc.Palette[fi].IsFabric = true;
+                }
+            }
 
             var analysis = PatternAnalysis.Compute(doc.Labels, doc.Width, doc.Height, doc.Palette.Count, doc.Options.LineSmoothness);
-            var composer = new PatternComposer(doc, analysis);
+            var composer = new PatternComposer(doc, analysis, AppInfo.Settings.MyThreads);
             float dpi = (float)(Num("--dpi") ?? 300);
 
             if (Arg("--export-pdf") is { } pdf)
             {
                 using var fs = File.Create(Path.GetFullPath(pdf));
-                Exporters.WritePdf(doc, analysis, fs);
+                Exporters.WritePdf(doc, analysis, fs, stock: AppInfo.Settings.MyThreads);
             }
             if (Arg("--export-svg") is { } svg) await File.WriteAllTextAsync(Path.GetFullPath(svg), Exporters.ToSvg(doc, analysis));
             if (Arg("--export-png") is { } png)
@@ -130,6 +153,11 @@ public partial class App : Application
                 await rt.SaveAsync(Path.GetFullPath(ppng), CanvasBitmapFileFormat.Png);
             }
             if (Arg("--export-project") is { } proj) ProjectFile.Save(doc, Path.GetFullPath(proj));
+            if (Arg("--export-calibration-pdf") is { } cal)
+            {
+                using var fs = File.Create(Path.GetFullPath(cal));
+                Exporters.WritePdf(new CalibrationPage(), "Kalibracja drukarki", fs);
+            }
         }
         catch (Exception ex)
         {

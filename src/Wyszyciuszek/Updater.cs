@@ -25,6 +25,9 @@ internal static class Updater
         return c;
     }
 
+    /// <summary>Podany testowy adres wydań — wtedy sprawdzamy przy każdym starcie.</summary>
+    public static bool HasFeedOverride => Environment.GetEnvironmentVariable(FeedOverrideVariable) is { Length: > 0 };
+
     public static Version CurrentVersion => UpdateLogic.ParseVersion(AppInfo.Version) ?? new Version(0, 0, 0);
 
     /// <summary>Exe, który można podmienić: jednoplikowy starter (przekazuje swoją ścieżkę przy uruchomieniu).</summary>

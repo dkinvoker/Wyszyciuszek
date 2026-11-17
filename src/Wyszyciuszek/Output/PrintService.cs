@@ -28,7 +28,11 @@ internal static class PrintService
         }
     }
 
-    public static async Task<Result> PrintAsync(nint hwnd, PatternComposer composer, string title)
+    /// <summary>
+    /// Okno „Drukuj” i wydruk stron. <paramref name="scaleX"/>/<paramref name="scaleY"/> — korekta z kalibracji drukarki
+    /// (strona skalowana względem środka).
+    /// </summary>
+    public static async Task<Result> PrintAsync(nint hwnd, IPageSource composer, string title, double scaleX = 1, double scaleY = 1)
     {
         var pd = new PRINTDLGW
         {
@@ -53,7 +57,7 @@ internal static class PrintService
             from = Math.Clamp(pd.nFromPage - 1, 0, composer.PageCount - 1);
             to = Math.Clamp(pd.nToPage - 1, from, composer.PageCount - 1);
         }
-        return await PrintPagesAsync(dc, composer, title, from, to);
+        return await PrintPagesAsync(dc, composer, title, from, to, scaleX, scaleY);
     }
 
     private static unsafe void SetupPage(PrinterDc dc, string paperId, bool landscape)
@@ -75,14 +79,14 @@ internal static class PrintService
         }
     }
 
-    private static async Task<Result> PrintPagesAsync(PrinterDc dc, PatternComposer composer, string title, int from, int to)
+    private static async Task<Result> PrintPagesAsync(PrinterDc dc, IPageSource composer, string title, int from, int to, double scaleX, double scaleY)
     {
         var docName = Marshal.StringToHGlobalUni(string.IsNullOrWhiteSpace(title) ? "Wyszyciuszek" : title);
         try
         {
             var info = new DOCINFOW { cbSize = Unsafe.SizeOf<DOCINFOW>(), lpszDocName = docName };
-            var layout = composer.Layout;
-            SetupPage(dc, layout.Paper.Id, layout.Landscape && !layout.IsLegendPage(from));
+            var first = composer.PageSize(from);
+            SetupPage(dc, composer.PaperId, first.Width > first.Height);
             if (StartDocW(dc.Hdc, ref info) <= 0) return new Result(false, "Drukarka odrzuciła zadanie drukowania.");
             bool ok = false;
             try
@@ -90,13 +94,16 @@ internal static class PrintService
                 for (int page = from; page <= to; page++)
                 {
                     var (wmm, hmm) = composer.PageSize(page);
-                    if (page != from) SetupPage(dc, layout.Paper.Id, wmm > hmm);
+                    if (page != from) SetupPage(dc, composer.PaperId, wmm > hmm);
                     if (StartPage(dc.Hdc) <= 0) return new Result(false, "Nie udało się rozpocząć strony.");
                     int dpiX = GetDeviceCaps(dc.Hdc, LOGPIXELSX), dpiY = GetDeviceCaps(dc.Hdc, LOGPIXELSY);
                     int offX = GetDeviceCaps(dc.Hdc, PHYSICALOFFSETX), offY = GetDeviceCaps(dc.Hdc, PHYSICALOFFSETY);
                     // raster 300 dpi wystarcza na linie i numery; GDI dopasowuje do rozdzielczości drukarki
                     using var rt = await Task.Run(() => Raster.RenderPage(composer, page, Math.Min(300, Math.Max(dpiX, 96))));
-                    Blit(dc.Hdc, rt, (int)Math.Round(wmm / 25.4 * dpiX), (int)Math.Round(hmm / 25.4 * dpiY), -offX, -offY);
+                    // korekta kalibracji: strona skalowana względem środka
+                    int pw = (int)Math.Round(wmm / 25.4 * dpiX), ph = (int)Math.Round(hmm / 25.4 * dpiY);
+                    int dw = (int)Math.Round(pw * scaleX), dh = (int)Math.Round(ph * scaleY);
+                    Blit(dc.Hdc, rt, dw, dh, -offX + (pw - dw) / 2, -offY + (ph - dh) / 2);
                     if (EndPage(dc.Hdc) <= 0) return new Result(false, "Drukarka przerwała drukowanie strony.");
                 }
                 ok = true;

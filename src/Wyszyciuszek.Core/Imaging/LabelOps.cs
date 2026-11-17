@@ -168,6 +168,52 @@ public static class LabelOps
         return passes > 0 ? src : (byte[])labels.Clone();
     }
 
+    /// <summary>
+    /// Rozpuszcza obszar w sąsiadach warstwa po warstwie od brzegu — wąski pasek między dwoma kolorami dzieli się
+    /// po środku (granica wypada tam, gdzie potem biegnie linia detalu). Zwraca liczbę zmienionych pikseli.
+    /// </summary>
+    public static int DissolveRegion(byte[] labels, Components comp, int region)
+    {
+        int w = comp.Width, h = comp.Height;
+        if (labels.Length != w * h || region < 0 || region >= comp.Count) return 0;
+        var pending = new List<int>();
+        var isPending = new bool[w * h];
+        for (int p = 0; p < comp.Map.Length; p++)
+        {
+            if (comp.Map[p] != region) continue;
+            pending.Add(p);
+            isPending[p] = true;
+        }
+        int total = pending.Count;
+        var votes = new int[256];
+        var assign = new List<(int P, byte C)>();
+        while (pending.Count > 0)
+        {
+            assign.Clear();
+            foreach (int p in pending)
+            {
+                Array.Clear(votes);
+                int x = p % w, y = p / w, any = 0;
+                if (x > 0 && !isPending[p - 1]) { votes[labels[p - 1]]++; any++; }
+                if (x < w - 1 && !isPending[p + 1]) { votes[labels[p + 1]]++; any++; }
+                if (y > 0 && !isPending[p - w]) { votes[labels[p - w]]++; any++; }
+                if (y < h - 1 && !isPending[p + w]) { votes[labels[p + w]]++; any++; }
+                if (any == 0) continue;
+                int best = 0;
+                for (int c = 1; c < 256; c++) if (votes[c] > votes[best]) best = c;
+                assign.Add((p, (byte)best));
+            }
+            if (assign.Count == 0) break; // obszar bez sąsiadów (cały obraz)
+            foreach (var (p, c) in assign)
+            {
+                labels[p] = c;
+                isPending[p] = false;
+            }
+            pending.RemoveAll(p => !isPending[p]);
+        }
+        return total - pending.Count;
+    }
+
     private static int MergeRegions(byte[] labels, int w, int h, Func<Components, List<int>> select, IReadOnlyList<Lab>? palette, int maxPasses, CancellationToken ct)
     {
         int merged = 0;
@@ -230,6 +276,54 @@ public static class LabelOps
     /// <summary>
     /// Odległość każdego piksela od granicy jego obszaru (w pikselach, przybliżenie 1 / √2). Piksele przy granicy mają 1.
     /// </summary>
+    /// <param name="frameIsBoundary">
+    /// false — krawędź obrazka nie jest granicą (tło „ciągnie się” poza kadr); odległość tylko do innych obszarów.
+    /// </param>
+    public static float[] DistanceToBoundary(int[] regionMap, int w, int h, bool frameIsBoundary)
+    {
+        if (frameIsBoundary) return DistanceToBoundary(regionMap, w, h);
+        var d = new float[w * h];
+        const float Diag = 1.41421356f;
+        float far = w + h;
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int p = y * w + x, r = regionMap[p];
+                bool edge = (x > 0 && regionMap[p - 1] != r) || (x < w - 1 && regionMap[p + 1] != r)
+                            || (y > 0 && regionMap[p - w] != r) || (y < h - 1 && regionMap[p + w] != r);
+                d[p] = edge ? 1 : far;
+            }
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int p = y * w + x;
+                float v = d[p];
+                if (x > 0) v = Math.Min(v, d[p - 1] + 1);
+                if (y > 0)
+                {
+                    v = Math.Min(v, d[p - w] + 1);
+                    if (x > 0) v = Math.Min(v, d[p - w - 1] + Diag);
+                    if (x < w - 1) v = Math.Min(v, d[p - w + 1] + Diag);
+                }
+                d[p] = v;
+            }
+        for (int y = h - 1; y >= 0; y--)
+            for (int x = w - 1; x >= 0; x--)
+            {
+                int p = y * w + x;
+                float v = d[p];
+                if (x < w - 1) v = Math.Min(v, d[p + 1] + 1);
+                if (y < h - 1)
+                {
+                    v = Math.Min(v, d[p + w] + 1);
+                    if (x < w - 1) v = Math.Min(v, d[p + w + 1] + Diag);
+                    if (x > 0) v = Math.Min(v, d[p + w - 1] + Diag);
+                }
+                d[p] = v;
+            }
+        return d;
+    }
+
     public static float[] DistanceToBoundary(int[] regionMap, int w, int h)
     {
         var d = new float[w * h];

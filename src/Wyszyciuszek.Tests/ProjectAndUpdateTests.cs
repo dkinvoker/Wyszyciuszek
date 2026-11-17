@@ -116,6 +116,8 @@ public class UpdateLogicTests
     [InlineData("v1.0.17", 1, 0, 17)]
     [InlineData("1.2", 1, 2, 0)]
     [InlineData("Wyszyciuszek 2.3.4", 2, 3, 4)]
+    [InlineData("v2", 2, 0, 0)]
+    [InlineData("v1.2.5-beta", 1, 2, 5)]
     public void Parses_versions(string text, int a, int b, int c) => Assert.Equal(new Version(a, b, c), UpdateLogic.ParseVersion(text));
 
     [Fact]

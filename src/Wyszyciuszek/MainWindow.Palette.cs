@@ -264,6 +264,8 @@ public sealed partial class MainWindow
             var stats = AnalysisIsCurrent ? _analysis : null;
             var numbers = Doc.ThreadNumbers();
             var usage = stats is null ? null : ThreadEstimator.PerColor(Doc, stats);
+            var stock = usage is null ? new Dictionary<int, StockCheck>() : ThreadStock.Check(Doc, usage, AppInfo.Settings.MyThreads).ToDictionary(c => c.Color);
+            var weak = Fabrics.LowContrast(Doc).ToHashSet();
             double total = Math.Max(1, Doc.Width * (double)Doc.Height);
             for (int i = 0; i < _rows.Count; i++)
             {
@@ -274,7 +276,7 @@ public sealed partial class MainWindow
                 row.Badge.Background = e.IsFabric ? Res("HaftBg3Brush") : Res("HaftLinenBrush");
                 row.Number.Foreground = e.IsFabric ? Res("HaftTextDimBrush") : new SolidColorBrush(Color.FromArgb(255, 21, 23, 26));
                 ToolTipService.SetToolTip(row.Badge, e.IsFabric ? "Tkanina — nie szyjemy (bez numeru)" : $"Szyjesz jako {numbers[i]}.");
-                row.SwatchFill.Background = Brush(e.Color);
+                row.SwatchFill.Background = Brush(Doc.DisplayColor(i));
                 if (row.PickerOpen)
                 {
                     var c = Color.FromArgb(255, e.Color.R, e.Color.G, e.Color.B);
@@ -285,15 +287,26 @@ public sealed partial class MainWindow
                 if (stats is not null && i < stats.ColorArea.Length)
                 {
                     double share = stats.ColorArea[i] / total;
-                    row.Stats.Text = share < 0.001 && stats.ColorArea[i] > 0 ? "<0,1%" : $"{share * 100:0.#}%";
+                    bool isShort = stock.TryGetValue(i, out var sc) && sc.Short;
+                    bool isWeak = weak.Contains(i);
+                    var shareText = share < 0.001 && stats.ColorArea[i] > 0 ? "<0,1%" : $"{share * 100:0.#}%";
+                    row.Stats.Text = isShort || isWeak ? "⚠ " + shareText : shareText;
+                    row.Stats.Foreground = isShort || isWeak ? Res("HaftThreadBrush") : Res("HaftTextDimBrush");
                     double cm2 = stats.ColorArea[i] * Doc.MmPerPixel * Doc.MmPerPixel / 100;
                     var thread = usage is not null && usage[i].Meters > 0 ? $" · nici ok. {ThreadEstimator.Meters(usage[i].Meters)}" : "";
                     var lines = Doc.Lines.Count(l => l.Color == i) is var ln and > 0 ? $" · linie detali: {ln}" : "";
-                    ToolTipService.SetToolTip(row.Stats, $"{stats.ColorRegionCount[i]} obszarów · ok. {cm2:0.#} cm²{lines}{thread}");
+                    var spool = stock.ContainsKey(i)
+                        ? sc.Short
+                            ? $"\nNa szpulce {ThreadEstimator.Meters(sc.OnSpool)} — zabraknie ok. {ThreadEstimator.Meters(sc.Missing)}."
+                            : $"\nNa szpulce {ThreadEstimator.Meters(sc.OnSpool)} — wystarczy."
+                        : "";
+                    var contrast = isWeak ? "\nSłabo widać ją na tej tkaninie." : "";
+                    ToolTipService.SetToolTip(row.Stats, $"{stats.ColorRegionCount[i]} obszarów · ok. {cm2:0.#} cm²{lines}{thread}{spool}{contrast}");
                 }
             }
             int stitched = Doc.Palette.Count(p => !p.IsFabric);
             PaletteSummary.Text = Doc.Palette.Count == 0 ? "" : stitched == Doc.Palette.Count ? $"{stitched}" : $"{stitched} + tkanina";
+            UpdateFabricButton();
         }
         finally
         {
@@ -324,6 +337,15 @@ public sealed partial class MainWindow
         SetPaintColor(index);
         SetTool(EditTool.Brush);
         ShowToast("Nowa nić", "Maluj nią pędzlem albo kliknij obszar wiaderkiem. Kolor zmienisz klikając próbkę.");
+    }
+
+    private void SortLayered_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is null) return;
+        if (_session.SortPalette(PaletteOrder.Layered))
+            ShowToast("Nowa kolejność szycia", "Najpierw tło i szerokie plamy, potem to, co na nich leży, na końcu cienkie detale.", InfoBarSeverity.Success);
+        else
+            ShowToast("Kolejność już jest od spodu do wierzchu", "");
     }
 
     private void SortByArea_Click(object sender, RoutedEventArgs e) => _session?.SortPalette(byLightness: false);

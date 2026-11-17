@@ -31,17 +31,27 @@ public static partial class UpdateLogic
     [GeneratedRegex(@"(\d+)\.(\d+)(?:\.(\d+))?")]
     private static partial Regex DottedVersionRegex();
 
+    [GeneratedRegex(@"\d+")]
+    private static partial Regex NumberRegex();
+
     [GeneratedRegex(@"(?i)sha-?256[^0-9a-f]{0,40}([0-9a-f]{64})")]
     private static partial Regex Sha256InTextRegex();
 
-    /// <summary>„v1.0.17”, „1.2”, „Wyszyciuszek 1.0.3” → 1.0.17 / 1.2.0 / 1.0.3 (zawsze trzy części).</summary>
+    /// <summary>
+    /// „v1.0.17”, „1.2”, „Wyszyciuszek 1.0.3” → 1.0.17 / 1.2.0 / 1.0.3 (zawsze trzy części). Pierwszeństwo ma liczba
+    /// z kropką; sama liczba („v2”) też działa.
+    /// </summary>
     public static Version? ParseVersion(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
         var m = DottedVersionRegex().Match(text);
-        if (!m.Success) return null;
-        int Part(int i) => m.Groups[i].Success ? int.Parse(m.Groups[i].Value, CultureInfo.InvariantCulture) : 0;
-        return new Version(Part(1), Part(2), Part(3));
+        if (m.Success)
+        {
+            int Part(int i) => m.Groups[i].Success ? int.Parse(m.Groups[i].Value, CultureInfo.InvariantCulture) : 0;
+            return new Version(Part(1), Part(2), Part(3));
+        }
+        var n = NumberRegex().Match(text);
+        return n.Success && int.TryParse(n.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var major) ? new Version(major, 0, 0) : null;
     }
 
     /// <summary>Porównanie liczbowe (1.0.10 jest nowsza niż 1.0.9), brakujące części traktujemy jak zero.</summary>

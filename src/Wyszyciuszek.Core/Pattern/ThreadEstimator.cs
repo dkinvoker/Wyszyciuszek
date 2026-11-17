@@ -18,6 +18,22 @@ public static class ThreadEstimator
 {
     /// <summary>Odstęp rzędów wypełnienia (mm).</summary>
     public const double RowSpacingMm = 0.5;
+
+    /// <summary>Odstęp rzędów dla wybranej gęstości wypełnienia (mm).</summary>
+    public static double RowSpacing(FillDensity fill) => fill switch
+    {
+        FillDensity.Medium => 1.0,
+        FillDensity.Sketch => 2.5,
+        _ => RowSpacingMm,
+    };
+
+    /// <summary>Opis gęstości do legendy i panelu.</summary>
+    public static string Describe(FillDensity fill) => fill switch
+    {
+        FillDensity.Medium => "średnie wypełnienie",
+        FillDensity.Sketch => "szkicowe wypełnienie",
+        _ => "gęste wypełnienie",
+    };
     /// <summary>Nić „wchodzi” w tkaninę i zawraca — zużycie większe niż sama długość ściegu.</summary>
     public const double TakeUp = 1.3;
     /// <summary>Ile razy przeszywa się linię detalu.</summary>
@@ -48,7 +64,7 @@ public static class ThreadEstimator
             bool fabric = doc.Palette[c].IsFabric;
             double fillMm2 = fabric || c >= analysis.ColorArea.Length ? 0 : analysis.ColorArea[c] * mm2PerPx;
             int regions = fabric || c >= analysis.ColorRegionCount.Length ? 0 : analysis.ColorRegionCount[c];
-            double sewnMm = fillMm2 / RowSpacingMm + lineMm[c] * LinePasses;
+            double sewnMm = fillMm2 / RowSpacing(doc.Print.Fill) + lineMm[c] * LinePasses;
             if (sewnMm <= 0)
             {
                 result[c] = new ThreadUsage(0, 0, 0, 0, 0, 0);

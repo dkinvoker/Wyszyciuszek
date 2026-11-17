@@ -33,6 +33,8 @@ public sealed record DesignStyle
     public float DetailWidth { get; init; } = 2;
     /// <summary>Kreska linii detali na wzorze do odrysowania (null — linia ciągła).</summary>
     public float[]? DetailDash { get; init; }
+    /// <summary>Kreska konturów (null — ciągła).</summary>
+    public float[]? OutlineDash { get; init; }
 
     /// <summary>Strzałki kierunku ściegu.</summary>
     public bool Arrows { get; init; }
@@ -52,8 +54,10 @@ public sealed record DesignStyle
 /// Składa wzór, kartki do druku i legendę z poleceń <see cref="IDrawSurface"/>. Ten sam kod rysuje podgląd, PDF, PNG,
 /// wydruk i obraz projektora.
 /// </summary>
-public sealed class PatternComposer
+public sealed class PatternComposer : IPageSource
 {
+    /// <summary>Szary kolor linii „do kalkowania”.</summary>
+    public static readonly Rgb TraceGray = new(140, 140, 140);
     public static readonly Rgb Ink = new(26, 26, 26);
     private static readonly Rgb Gray = new(120, 120, 120);
     private static readonly Rgb LightGray = new(185, 185, 185);
@@ -64,15 +68,20 @@ public sealed class PatternComposer
     private StitchDirection[]? _directions;
     private PathData[]? _linePaths;
 
-    public PatternComposer(PatternDocument document, PatternAnalysis analysis)
+    private readonly IReadOnlyList<Project.SavedThread>? _stock;
+
+    /// <param name="stock">„Moje nici” z zapasem na szpulkach — legenda ostrzega, gdy nici zabraknie.</param>
+    public PatternComposer(PatternDocument document, PatternAnalysis analysis, IReadOnlyList<Project.SavedThread>? stock = null)
     {
         _doc = document;
         _an = analysis;
+        _stock = stock;
         Layout = PageLayout.Compute(DesignWidthMm, DesignHeightMm, Papers.Get(document.Print.Paper), document.Print.Legend);
     }
 
     public PageLayout Layout { get; }
     public int PageCount => Layout.PageCount;
+    public string PaperId => Layout.Paper.Id;
     public double DesignWidthMm => _doc.Print.WidthMm;
     public double DesignHeightMm => _doc.Print.HeightMm(_an.Width, _an.Height);
     private float MmPerPx => (float)(DesignWidthMm / _an.Width);
@@ -94,6 +103,13 @@ public sealed class PatternComposer
         {
             FullColor = fullColor, Tint = p.Tint, Numbers = p.Numbers && !fullColor, Outline = !fullColor, Frame = p.Frame,
             LineWidth = (float)p.LineWidthMm * k, MinFont = 1.7f * k, MaxFont = 4.2f * k,
+            Ink = p.GrayLines && !fullColor ? TraceGray : Ink,
+            OutlineDash = fullColor ? null : p.Outline switch
+            {
+                OutlineStyle.Dashed => [1.8f * k, 1.1f * k],
+                OutlineStyle.Dotted => [0.25f * k, 0.9f * k],
+                _ => null,
+            },
             DetailWidth = (float)Math.Max(0.8, p.LineWidthMm * 2) * k,
             DetailDash = [2.4f * k, 0.9f * k, 0.35f * k, 0.9f * k],
             Arrows = p.StitchArrows && !fullColor, ArrowWidth = 0.22f * k, MinArrow = 4.5f * k, MaxArrow = 14f * k,
@@ -112,11 +128,11 @@ public sealed class PatternComposer
             var path = _an.ColorPaths[c];
             if (path.IsEmpty) continue;
             var entry = palette[c];
-            if (style.FullColor) s.Fill(path, entry.Color);
+            if (style.FullColor) s.Fill(path, _doc.DisplayColor(c));
             else if (c == style.Highlight) s.Fill(path, style.Paper.Lerp(entry.Color, 0.75));
             else if (style.Tint > 0.001 && !entry.IsFabric) s.Fill(path, style.Paper.Lerp(entry.Color, style.Tint));
         }
-        if (style.Outline && !_an.Outline.IsEmpty) s.Stroke(_an.Outline, style.Ink, style.LineWidth);
+        if (style.Outline && !_an.Outline.IsEmpty) s.Stroke(_an.Outline, style.Ink, style.LineWidth, style.OutlineDash);
         if (style.Frame && !_an.Frame.IsEmpty) s.Stroke(_an.Frame, style.Ink, style.LineWidth);
         if (style.Lines) DrawLines(s, style);
         if (style.Arrows) DrawArrows(s, style, bounds);
@@ -133,7 +149,7 @@ public sealed class PatternComposer
             if (style.FullColor)
             {
                 int c = _doc.Lines[i].Color;
-                s.Stroke(paths[i], c >= 0 && c < _doc.Palette.Count ? _doc.Palette[c].Color : style.Ink, style.DetailWidth);
+                s.Stroke(paths[i], c >= 0 && c < _doc.Palette.Count ? _doc.DisplayColor(c) : style.Ink, style.DetailWidth);
             }
             else
             {
@@ -150,7 +166,7 @@ public sealed class PatternComposer
         {
             if (!NumberFor(r, style, numbers, out var text, out var size)) continue;
             if (!visible.Inflate(size).Contains(r.LabelPoint)) continue;
-            var color = style.FullColor && _doc.Palette[r.Color].Color.PrefersLightText ? Rgb.White : style.Ink;
+            var color = style.FullColor && _doc.DisplayColor(r.Color).PrefersLightText ? Rgb.White : style.Ink;
             s.Text(text, r.LabelPoint + new Vector2(0, size * 0.36f), size, color, TextAnchor.Middle);
         }
         if (style.Lines && !style.FullColor) DrawLineNumbers(s, style, numbers, visible);
@@ -240,7 +256,7 @@ public sealed class PatternComposer
                 path.LineTo(tip);
                 path.LineTo(tip + Rotate(back, -0.5f));
             }
-            var color = style.FullColor ? (palette[r.Color].Color.PrefersLightText ? Rgb.White : Ink) : style.ArrowColor;
+            var color = style.FullColor ? (_doc.DisplayColor(r.Color).PrefersLightText ? Rgb.White : Ink) : style.ArrowColor;
             float width = style.EmphasizeManual && manual ? style.ArrowWidth * 1.8f : style.ArrowWidth;
             s.Stroke(path, color, width);
         }
@@ -392,6 +408,8 @@ public sealed class PatternComposer
         var numbers = _doc.ThreadNumbers();
         var usage = ThreadEstimator.PerColor(_doc, _an);
         var total = ThreadEstimator.Total(usage);
+        var stock = ThreadStock.Check(_doc, usage, _stock).ToDictionary(c => c.Color);
+        var weak = Fabrics.LowContrast(_doc).ToHashSet();
 
         // miniatura w kolorach (prawy górny róg)
         float thumbMax = 62;
@@ -412,22 +430,28 @@ public sealed class PatternComposer
         y += 2;
         int stitchedCount = Enumerable.Range(0, _doc.Palette.Count).Count(i => numbers[i] != 0 && usage[i].Meters > 0);
         var hoop = Hoops.Get(_doc.Print.Hoop);
-        string[] info =
-        [
-            $"Rozmiar {Cm(L.DesignWidth)} × {Cm(L.DesignHeight)} cm · nici: {stitchedCount} · obszary: {_an.RegionCount}"
+        var info = new List<(string Text, Rgb Color)>
+        {
+            ($"Rozmiar {Cm(L.DesignWidth)} × {Cm(L.DesignHeight)} cm · nici: {stitchedCount} · obszary: {_an.RegionCount}"
                 + (_doc.Lines.Count > 0 ? $" · linie detali: {_doc.Lines.Count}" : "")
-                + (hoop is null ? "" : $" · tamborek: {hoop.Name}"),
-            L.Tiles.Count > 1
+                + (hoop is null ? "" : $" · tamborek: {hoop.Name}"), Gray),
+            (L.Tiles.Count > 1
                 ? $"Wzór na {L.Tiles.Count} kartkach ({L.Columns}×{L.Rows}): nałóż je tak, by krzyżyki się pokryły, i sklej."
-                : "Wzór mieści się na jednej kartce.",
-            $"Nici ok. {ThreadEstimator.Meters(total.Meters)} (górnej; dolnej podobnie) · szycie ok. {ThreadEstimator.Duration(total.Minutes)}"
-                + " — orientacyjnie, przy gęstym wypełnieniu.",
-        ];
-        foreach (var paragraph in info)
+                : "Wzór mieści się na jednej kartce.", Gray),
+        };
+        if (_doc.FabricColor is { } fabric)
+            info.Add(($"Tkanina: {Fabrics.NameFor(fabric)}" + (weak.Count > 0 ? $" — słabo na niej widać nici: {weak.Count}." : "."), Gray));
+        info.Add(($"Nici ok. {ThreadEstimator.Meters(total.Meters)} (górnej; dolnej podobnie) · szycie ok. {ThreadEstimator.Duration(total.Minutes)}"
+                  + $" — orientacyjnie, {ThreadEstimator.Describe(_doc.Print.Fill)}.", Gray));
+        var shortages = stock.Values.Where(c => c.Short).ToList();
+        if (shortages.Count > 0)
+            info.Add(("Zabraknie nici z pudełka: " + string.Join(", ", shortages.Select(c => $"{c.Name} (ok. {ThreadEstimator.Meters(c.Missing)})"))
+                      + " — przygotuj nową szpulkę.", Accent));
+        foreach (var (paragraph, color) in info)
             foreach (var line in Wrap(paragraph, 3.4f, textWidth))
             {
                 y += 5;
-                s.Text(line, new Vector2(m, y), 3.4f, Gray);
+                s.Text(line, new Vector2(m, y), 3.4f, color);
             }
 
         // wskazówki (u dołu strony) — liczone wcześniej, żeby tabela wiedziała, ile ma miejsca
@@ -466,13 +490,14 @@ public sealed class PatternComposer
             s.Text(e.IsFabric ? "–" : numbers[i].ToString(CultureInfo.InvariantCulture), new Vector2(m + r, cy + r * 0.42f), r * 1.15f, e.IsFabric ? Gray : Rgb.White, TextAnchor.Middle, bold: true);
             // próbka
             float sx = m + 2 * r + 4;
-            s.Fill(Shapes.Rect(sx, cy - rowH * 0.32f, 16, rowH * 0.64f), e.Color);
+            s.Fill(Shapes.Rect(sx, cy - rowH * 0.32f, 16, rowH * 0.64f), _doc.DisplayColor(i));
             s.Stroke(Shapes.Rect(sx, cy - rowH * 0.32f, 16, rowH * 0.64f), Gray, 0.2f);
             // opis (do prawej) i nazwa (skrócona, jeśli by na niego weszła)
             var u = usage[i];
             int regionCount = i < _an.ColorRegionCount.Length ? _an.ColorRegionCount[i] : 0;
             var detail = e.IsFabric
-                ? "tkanina — nie szyjemy" + (u.Lines > 0 ? $" · linie: {u.Lines} · ok. {ThreadEstimator.Meters(u.Meters)}" : "")
+                ? "tkanina — nie szyjemy" + (_doc.FabricColor is { } f ? $" ({Fabrics.NameFor(f)})" : "")
+                  + (u.Lines > 0 ? $" · linie: {u.Lines} · ok. {ThreadEstimator.Meters(u.Meters)}" : "")
                 : $"{e.Color.Hex} · {Pct(area / pixels)} · {Num(u.FillCm2)} cm² · obszary: {regionCount}"
                   + (u.Lines > 0 ? $" · linie: {u.Lines}" : "")
                   + $" · ok. {ThreadEstimator.Meters(u.Meters)}";
@@ -480,7 +505,18 @@ public sealed class PatternComposer
             float nx = sx + 20;
             float nameMax = (float)pw - m - FontMetrics.Measure(detail, 3f) - 4 - nx;
             var name = string.IsNullOrWhiteSpace(e.Name) ? ThreadCatalog.NameFor(e.Color) : e.Name;
-            s.Text(Fit(name, 3.6f, true, Math.Max(12, nameMax)), new Vector2(nx, cy + 1.3f), 3.6f, Ink, bold: true);
+            // ostrzeżenia pod nazwą: brak nici na szpulce, nić zlewa się z tkaniną
+            var warnings = new List<string>();
+            if (stock.TryGetValue(i, out var sc))
+                warnings.Add(sc.Short
+                    ? $"na szpulce {ThreadEstimator.Meters(sc.OnSpool)} — zabraknie ok. {ThreadEstimator.Meters(sc.Missing)}"
+                    : $"na szpulce {ThreadEstimator.Meters(sc.OnSpool)} — wystarczy");
+            if (weak.Contains(i)) warnings.Add("słabo widać na tej tkaninie");
+            bool alarm = sc.Short || weak.Contains(i);
+            float nameY = warnings.Count > 0 ? cy - 0.4f : cy + 1.3f;
+            s.Text(Fit(name, 3.6f, true, Math.Max(12, nameMax)), new Vector2(nx, nameY), 3.6f, Ink, bold: true);
+            if (warnings.Count > 0)
+                s.Text(Fit(string.Join(" · ", warnings), 2.6f, false, Math.Max(12, nameMax)), new Vector2(nx, cy + 3.1f), 2.6f, alarm ? Accent : Gray);
             y += rowH;
             s.Stroke(Shapes.Line(new Vector2(m, y), new Vector2((float)pw - m, y)), new Rgb(225, 225, 225), 0.2f);
         }

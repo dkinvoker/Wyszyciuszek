@@ -11,17 +11,34 @@ namespace Wyszyciuszek.Core.Output;
 /// <summary>Eksport wzoru do plików (bez interfejsu i Win2D).</summary>
 public static class Exporters
 {
-    /// <summary>Wszystkie kartki (i legenda) jako wektorowy PDF w skali 1:1.</summary>
-    public static void WritePdf(PatternDocument doc, PatternAnalysis analysis, Stream output)
+    /// <summary>
+    /// Wszystkie kartki (i legenda) jako wektorowy PDF w skali 1:1 — opcjonalnie z korektą skali z kalibracji drukarki
+    /// (gdy PDF będzie drukowany na tej samej drukarce).
+    /// </summary>
+    public static void WritePdf(PatternDocument doc, PatternAnalysis analysis, Stream output, double scaleX = 1, double scaleY = 1,
+        IReadOnlyList<Project.SavedThread>? stock = null) =>
+        WritePdf(new PatternComposer(doc, analysis, stock), doc.Title, output, scaleX, scaleY);
+
+    public static void WritePdf(IPageSource pages, string title, Stream output, double scaleX = 1, double scaleY = 1)
     {
-        var composer = new PatternComposer(doc, analysis);
-        var pdf = new PdfWriter(doc.Title);
-        for (int i = 0; i < composer.PageCount; i++)
+        var pdf = new PdfWriter(title);
+        for (int i = 0; i < pages.PageCount; i++)
         {
-            var (w, h) = composer.PageSize(i);
-            composer.DrawPage(pdf.BeginPage(w, h), i);
+            var (w, h) = pages.PageSize(i);
+            var s = pdf.BeginPage(w, h);
+            bool scaled = Math.Abs(scaleX - 1) > 1e-6 || Math.Abs(scaleY - 1) > 1e-6;
+            if (scaled) s.PushTransform(ScaleAboutCenter(w, h, scaleX, scaleY));
+            pages.DrawPage(s, i);
+            if (scaled) s.Pop();
         }
         pdf.Save(output);
+    }
+
+    /// <summary>Skalowanie strony względem jej środka (korekta drukarki nie przesuwa wzoru do rogu).</summary>
+    public static Matrix3x2 ScaleAboutCenter(double width, double height, double scaleX, double scaleY)
+    {
+        var c = new Vector2((float)width / 2, (float)height / 2);
+        return Matrix3x2.CreateTranslation(-c) * Matrix3x2.CreateScale((float)scaleX, (float)scaleY) * Matrix3x2.CreateTranslation(c);
     }
 
     /// <summary>
@@ -48,7 +65,7 @@ public static class Exporters
             var e = doc.Palette[c];
             var label = e.IsFabric ? $"{e.Name} (tkanina)" : $"{c + 1} {e.Name}";
             sb.Append($"  <g inkscape:groupmode=\"layer\" id=\"kolor-{c + 1}\" inkscape:label=\"{Esc(label)}\"{transform}>\n");
-            sb.Append($"    <path fill=\"{e.Color.Hex}\" fill-rule=\"evenodd\" d=\"{an.ColorPaths[c].ToSvgData()}\"/>\n");
+            sb.Append($"    <path fill=\"{doc.DisplayColor(c).Hex}\" fill-rule=\"evenodd\" d=\"{an.ColorPaths[c].ToSvgData()}\"/>\n");
             sb.Append("  </g>\n");
         }
         sb.Append($"  <g inkscape:groupmode=\"layer\" id=\"kontury\" inkscape:label=\"Kontury\"{transform}>\n");

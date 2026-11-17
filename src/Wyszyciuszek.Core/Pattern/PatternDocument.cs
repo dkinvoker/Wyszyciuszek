@@ -1,10 +1,39 @@
 using System.Numerics;
+using Wyszyciuszek.Core.Imaging;
 
 namespace Wyszyciuszek.Core.Pattern;
+
+/// <summary>Kreska konturów na wzorze do odrysowania.</summary>
+public enum OutlineStyle
+{
+    /// <summary>Ciągła — najwyraźniejsza.</summary>
+    Solid,
+    /// <summary>Przerywana — pod pisak znikający i kalkę (łatwo prowadzić, mniej tuszu).</summary>
+    Dashed,
+    /// <summary>Kropki — najmniej widoczne po przeniesieniu, np. na stabilizatorze rozpuszczalnym.</summary>
+    Dotted,
+}
+
+/// <summary>Jak gęsto wypełnia się obszary (do szacunku nici i czasu).</summary>
+public enum FillDensity
+{
+    /// <summary>Gęsto, „malowanie nicią” — rzędy co ok. 0,5 mm, tkaniny nie widać.</summary>
+    Dense,
+    /// <summary>Średnio — rzędy co ok. 1 mm, tkanina lekko prześwituje.</summary>
+    Medium,
+    /// <summary>Szkicowo — luźne rzędy co ok. 2,5 mm, jak kreskowanie ołówkiem.</summary>
+    Sketch,
+}
 
 /// <summary>Ustawienia wydruku wzoru.</summary>
 public sealed class PrintSettings
 {
+    /// <summary>Gęstość wypełnienia — do szacunku nici i czasu szycia.</summary>
+    public FillDensity Fill { get; set; } = FillDensity.Dense;
+    /// <summary>Kreska konturów.</summary>
+    public OutlineStyle Outline { get; set; } = OutlineStyle.Solid;
+    /// <summary>Szare linie i numery zamiast czarnych (słabiej przebijają przez tkaninę i nici).</summary>
+    public bool GrayLines { get; set; }
     /// <summary>Szerokość wzoru na tkaninie (mm). Wysokość wynika z proporcji obrazu.</summary>
     public double WidthMm { get; set; } = 150;
     public string Paper { get; set; } = "A4";
@@ -51,10 +80,31 @@ public sealed class PatternDocument
     public List<DetailLine> Lines { get; set; } = [];
     /// <summary>Ręcznie ustawione kierunki ściegu.</summary>
     public List<StitchHint> StitchHints { get; set; } = [];
+    /// <summary>
+    /// Kolor materiału, na którym się szyje (null — nieustalony). W podglądzie kolory „tkanina” mają ten kolor,
+    /// a nici słabo na nim widoczne dostają ostrzeżenie.
+    /// </summary>
+    public Rgb? FabricColor { get; set; }
+
+    /// <summary>Kolor, jakim widać nić albo tkaninę: tkanina z ustalonym kolorem materiału — ten kolor.</summary>
+    public Rgb DisplayColor(int index) =>
+        index < 0 || index >= Palette.Count ? Rgb.Black
+        : Palette[index].IsFabric && FabricColor is { } f ? f : Palette[index].Color;
     public SimplifyOptions Options { get; set; } = new();
     public PrintSettings Print { get; set; } = new();
 
     public bool HasPattern => Width > 0 && Height > 0 && Labels.Length == Width * Height && Palette.Count > 0;
+
+    /// <summary>
+    /// Niezależna kopia do pracy w tle (eksport, druk, autozapis) — edycja w oknie w tym czasie jej nie zmieni.
+    /// </summary>
+    public PatternDocument Snapshot() => new()
+    {
+        Title = Title, SourceImage = SourceImage, Width = Width, Height = Height, Labels = (byte[])Labels.Clone(),
+        Palette = Palette.Select(p => p.Clone()).ToList(), Lines = Lines.Select(l => l.Clone()).ToList(),
+        StitchHints = StitchHints.Select(h => h.Clone()).ToList(), FabricColor = FabricColor,
+        Options = Options.Clone(), Print = Print.Clone(),
+    };
 
     /// <summary>Rozmiar jednego piksela obrazu roboczego na tkaninie (mm).</summary>
     public double MmPerPixel => Width > 0 ? Print.WidthMm / Width : 0;

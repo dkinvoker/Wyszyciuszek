@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Wyszyciuszek.Core.Output;
+using Wyszyciuszek.Canvas;
 using Wyszyciuszek.Core.Pattern;
 
 namespace Wyszyciuszek;
@@ -44,6 +45,9 @@ public sealed partial class MainWindow
             HoopCombo.SelectedIndex = Math.Max(0, HoopCombo.Items.Cast<ComboBoxItem>().ToList().FindIndex(i => (string)i.Tag == p.Hoop));
             PaperCombo.SelectedIndex = Math.Max(0, PaperCombo.Items.Cast<ComboBoxItem>().ToList().FindIndex(i => (string)i.Tag == p.Paper));
             MirrorToggle.IsOn = p.Mirror;
+            OutlineCombo.SelectedIndex = (int)p.Outline;
+            FillCombo.SelectedIndex = (int)p.Fill;
+            GrayCheck.IsChecked = p.GrayLines;
             NumbersCheck.IsChecked = p.Numbers;
             LegendCheck.IsChecked = p.Legend;
             CenterMarksCheck.IsChecked = p.CenterMarks;
@@ -236,6 +240,7 @@ public sealed partial class MainWindow
         p.CenterMarks = CenterMarksCheck.IsChecked == true;
         p.Frame = FrameCheck.IsChecked == true;
         p.StitchArrows = ArrowsCheck.IsChecked == true;
+        p.GrayLines = GrayCheck.IsChecked == true;
     });
 
     private void PrintSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -274,11 +279,103 @@ public sealed partial class MainWindow
             int un = composer.CountUnnumbered(composer.PrintStyle());
             if (un > 0) lines.Add($"{un} małych obszarów bez numeru — powiększ wzór albo zmniejsz szczegóły.");
         }
-        var usage = ThreadEstimator.Total(ThreadEstimator.PerColor(d, _analysis));
+        var perColor = ThreadEstimator.PerColor(d, _analysis);
+        var usage = ThreadEstimator.Total(perColor);
         if (usage.Meters > 0)
-            lines.Add($"Nici ok. {ThreadEstimator.Meters(usage.Meters)} · szycie ok. {ThreadEstimator.Duration(usage.Minutes)} (orientacyjnie, gęste wypełnienie).");
+            lines.Add($"Nici ok. {ThreadEstimator.Meters(usage.Meters)} · szycie ok. {ThreadEstimator.Duration(usage.Minutes)} (orientacyjnie, {ThreadEstimator.Describe(d.Print.Fill)}).");
+        var shortages = ThreadStock.Check(d, perColor, AppInfo.Settings.MyThreads).Where(c => c.Short).ToList();
+        if (shortages.Count > 0)
+            lines.Add("⚠ Zabraknie nici z pudełka: " + string.Join(", ", shortages.Select(c => $"{c.Name} (ok. {ThreadEstimator.Meters(c.Missing)})")) + ".");
+        var weak = Fabrics.LowContrast(d);
+        if (weak.Count > 0)
+            lines.Add("⚠ Słabo widać na tkaninie: " + string.Join(", ", weak.Select(i => d.Palette[i].Name)) + " — wybierz ciemniejszą albo jaśniejszą nić.");
         lines.Add($"1 piksel obrazu roboczego = {d.MmPerPixel:0.00} mm na tkaninie.");
         PrintInfo.Text = string.Join("\n", lines);
+        CalibrationLinkText.Text = AppInfo.Settings.HasPrintCalibration
+            ? $"Kalibracja drukarki: {AppInfo.Settings.PrintCalibrationText}…"
+            : "Kalibracja drukarki…";
+        UpdateNarrowPanel(d, _analysis);
         SyncSizeBoxes();
+    }
+
+    private void FillCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (FillCombo.SelectedIndex < 0) return;
+        var fill = (FillDensity)FillCombo.SelectedIndex;
+        UpdatePrint(p => p.Fill = fill);
+        UpdatePaletteRows(); // metry przy niciach
+    }
+
+    private void OutlineCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (OutlineCombo.SelectedIndex < 0) return;
+        var style = (OutlineStyle)OutlineCombo.SelectedIndex;
+        UpdatePrint(p => p.Outline = style);
+    }
+
+    // ================================================================== za wąskie na wypełnienie
+
+    private List<NarrowRegion> _narrow = [];
+
+    private void UpdateNarrowPanel(PatternDocument d, Core.Vector.PatternAnalysis an)
+    {
+        _narrow = NarrowRegions.Find(d, an);
+        if (_narrow.Count == 0)
+        {
+            NarrowPanel.Visibility = Visibility.Collapsed;
+            NarrowShowToggle.IsChecked = false;
+            View.WarningRegions = null;
+            return;
+        }
+        int stripes = _narrow.Count(n => n.Stripe);
+        NarrowText.Text = $"⚠ {Plural(_narrow.Count, "obszar", "obszary", "obszarów")} węższe niż {NarrowRegions.DefaultMinWidthMm:0} mm " +
+                          "— trudno je wypełnić ściegiem. Przeszyj je linią, powiększ wzór albo zmniejsz szczegóły.";
+        NarrowConvertButton.Content = stripes > 0 ? $"Paski na linie ({stripes})" : "Paski na linie";
+        NarrowConvertButton.IsEnabled = stripes > 0;
+        NarrowPanel.Visibility = Visibility.Visible;
+        View.WarningRegions = NarrowShowToggle.IsChecked == true ? _narrow.Select(n => n.Region).ToList() : null;
+    }
+
+    private static string Plural(int n, string one, string few, string many) =>
+        $"{n} " + (n == 1 ? one : n % 10 is >= 2 and <= 4 && n % 100 is < 12 or > 14 ? few : many);
+
+    private void NarrowShow_Click(object sender, RoutedEventArgs e)
+    {
+        bool show = NarrowShowToggle.IsChecked == true;
+        View.WarningRegions = show ? _narrow.Select(n => n.Region).ToList() : null;
+        if (show && View.Mode is ViewMode.Original or ViewMode.Overlay) SetViewMode(ViewMode.Colors);
+    }
+
+    private void NarrowConvert_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is null || !AnalysisIsCurrent) return;
+        var stripes = _narrow.Where(n => n.Stripe).Select(n => n.Region).ToList();
+        int made = _session.ConvertRegionsToLines(_analysis!.Components, stripes);
+        if (made > 0)
+        {
+            _editedSinceSimplify = true;
+            ShowToast($"Zamieniono na linie: {made}", "Wąskie paski są teraz liniami detali w swoich kolorach. Cofniesz to Ctrl+Z.", InfoBarSeverity.Success);
+        }
+        else
+        {
+            ShowToast("Nic do zamiany", "Nie znalazłem wąskich pasków, które dałoby się zamienić na linię.");
+        }
+    }
+
+    /// <summary>Shift+L: zaznaczony obszar → linia detalu.</summary>
+    private void ConvertSelectedToLine()
+    {
+        int r = View.SelectedRegion;
+        if (_session is null || !AnalysisIsCurrent || r < 0 || r >= _analysis!.RegionCount)
+        {
+            ShowToast("Zaznacz obszar", "Kliknij obszar strzałką (V), a potem Shift+L zamieni go na linię detalu.");
+            return;
+        }
+        if (_session.ConvertRegionsToLines(_analysis.Components, [r]) > 0)
+        {
+            View.SelectedRegion = -1;
+            _editedSinceSimplify = true;
+            ShowToast("Obszar zamieniony na linię", "Jego środkiem biegnie teraz linia detalu w tym samym kolorze. Cofniesz to Ctrl+Z.", InfoBarSeverity.Success);
+        }
     }
 }

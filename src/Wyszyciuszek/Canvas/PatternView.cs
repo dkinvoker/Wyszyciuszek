@@ -56,7 +56,7 @@ public sealed partial class PatternView : UserControl
     private bool _spaceDown;
     private bool _shiftDown;
 
-    private enum DragKind { None, Pan, Brush, Split, Line, Direction }
+    private enum DragKind { None, Pan, Brush, Split, Line, Direction, Minimap }
     private DragKind _drag;
     private Vector2 _dragStart, _panStart, _directionStart;
     private readonly List<Vector2> _stroke = [];
@@ -197,6 +197,15 @@ public sealed partial class PatternView : UserControl
         set { _selectedLine = value; _canvas.Invalidate(); }
     }
 
+    private IReadOnlyList<int>? _warnings;
+
+    /// <summary>Obszary do wyróżnienia na czerwono (np. za wąskie na wypełnienie); null — bez wyróżnienia.</summary>
+    public IReadOnlyList<int>? WarningRegions
+    {
+        get => _warnings;
+        set { _warnings = value; _canvas.Invalidate(); }
+    }
+
     public bool HasContent => _doc is not null;
 
     private int _fitWidth, _fitHeight;
@@ -230,6 +239,7 @@ public sealed partial class PatternView : UserControl
         CheckSize();
         _cache.Clear();
         _analysis = analysis;
+        _warnings = null; // numery obszarów się zmieniły — okno ustawi je od nowa
         _composer = analysis is not null && _doc is not null && analysis.Width == _doc.Width ? new PatternComposer(_doc, analysis) : null;
         if (_selected >= (analysis?.RegionCount ?? 0)) _selected = -1;
         _hover = -1;
@@ -336,6 +346,20 @@ public sealed partial class PatternView : UserControl
         }
 
         ds.Transform = world;
+        DrawScene(ds, w, h);
+        ds.Transform = Matrix3x2.Identity;
+        if (_mode == ViewMode.Compare) DrawSplitHandle(ds, screenRect);
+        DrawBrushPreview(ds);
+        DrawLinePreview(ds);
+        DrawDirectionPreview(ds);
+        DrawMinimap(ds, sender.ActualSize, w, h);
+        DrawLoupe(ds, sender.ActualSize, w, h);
+        _cache.EndFrame();
+    }
+
+    /// <summary>Treść widoku (oryginał, kolory, wzór…) z tamborkiem i podświetleniami — w bieżącym przekształceniu.</summary>
+    private void DrawScene(CanvasDrawingSession ds, int w, int h)
+    {
         var surface = new Win2DSurface(ds, _cache);
         try
         {
@@ -381,13 +405,126 @@ public sealed partial class PatternView : UserControl
         {
             surface.PopAll();
         }
+    }
 
-        ds.Transform = Matrix3x2.Identity;
-        if (_mode == ViewMode.Compare) DrawSplitHandle(ds, screenRect);
-        DrawBrushPreview(ds);
-        DrawLinePreview(ds);
-        DrawDirectionPreview(ds);
-        _cache.EndFrame();
+    // ================================================================== minimapa i lupa
+
+    private const float MinimapMax = 170, LoupeRadius = 95, LoupeFactor = 3;
+    private Rect _minimapRect = Rect.Empty;
+    private bool _showLoupe, _wasOverMinimap;
+
+    /// <summary>Lupa przy kursorze — 3× większe powiększenie, do drobnych poprawek.</summary>
+    public bool ShowLoupe
+    {
+        get => _showLoupe;
+        set { _showLoupe = value; _canvas.Invalidate(); }
+    }
+
+    /// <summary>Czy cały obrazek mieści się w oknie (wtedy minimapa niepotrzebna).</summary>
+    private bool WholeImageVisible(Vector2 size, int w, int h)
+    {
+        var a = ToWorld(Vector2.Zero);
+        var b = ToWorld(size);
+        return a.X <= 0.5f && a.Y <= 0.5f && b.X >= w - 0.5f && b.Y >= h - 0.5f;
+    }
+
+    /// <summary>Podgląd całości w lewym dolnym rogu z ramką widocznego fragmentu — klik albo przeciąganie przesuwa widok.</summary>
+    private void DrawMinimap(CanvasDrawingSession ds, Vector2 size, int w, int h)
+    {
+        _minimapRect = Rect.Empty;
+        if (WholeImageVisible(size, w, h) || size.X < 300 || size.Y < 260) return;
+        float k = Math.Min(MinimapMax / w, MinimapMax / h);
+        float mw = w * k, mh = h * k;
+        var origin = new Vector2(16, size.Y - 16 - mh);
+        ds.FillRoundedRectangle(new Rect(origin.X - 6, origin.Y - 6, mw + 12, mh + 12), 8, 8, Color.FromArgb(235, 28, 31, 35));
+        ds.DrawRoundedRectangle(new Rect(origin.X - 6, origin.Y - 6, mw + 12, mh + 12), 8, 8, Color.FromArgb(255, 58, 64, 71), 1);
+
+        ds.Transform = Matrix3x2.CreateScale(k) * Matrix3x2.CreateTranslation(origin);
+        var surface = new Win2DSurface(ds, _cache);
+        try
+        {
+            if (_composer is null || _mode is ViewMode.Original) DrawSource(ds, w, h);
+            else _composer.DrawDesign(surface, new DesignStyle { FullColor = true, Outline = false, Numbers = false, DetailWidth = 1.5f / k });
+        }
+        finally
+        {
+            surface.PopAll();
+            ds.Transform = Matrix3x2.Identity;
+        }
+
+        // widoczny fragment
+        var a = Vector2.Max(ToWorld(Vector2.Zero), Vector2.Zero);
+        var b = Vector2.Min(ToWorld(size), new Vector2(w, h));
+        if (b.X > a.X && b.Y > a.Y)
+        {
+            var r = new Rect(origin.X + a.X * k, origin.Y + a.Y * k, (b.X - a.X) * k, (b.Y - a.Y) * k);
+            ds.DrawRectangle(r, Color.FromArgb(200, 0, 0, 0), 3);
+            ds.DrawRectangle(r, Thread, 1.5f);
+        }
+        _minimapRect = new Rect(origin.X, origin.Y, mw, mh);
+    }
+
+    /// <summary>Punkt na minimapie → punkt obrazu; widok ustawia się tak, by był na środku.</summary>
+    private void CenterOnMinimap(Vector2 screen)
+    {
+        if (_doc is null || _minimapRect.IsEmpty) return;
+        float k = (float)(_minimapRect.Width / _doc.Width);
+        var world = new Vector2((float)((screen.X - _minimapRect.X) / k), (float)((screen.Y - _minimapRect.Y) / k));
+        world = Vector2.Clamp(world, Vector2.Zero, new Vector2(_doc.Width, _doc.Height));
+        _pan = _canvas.ActualSize / 2 - world * _zoom;
+        _needsFit = false;
+        ZoomChanged?.Invoke();
+    }
+
+    private bool InMinimap(Vector2 screen) => !_minimapRect.IsEmpty && _minimapRect.Contains(new Point(screen.X, screen.Y));
+
+    /// <summary>Lupa: koło obok kursora z tym samym widokiem w 3× większym powiększeniu (z pędzlem i rysowaną linią).</summary>
+    private void DrawLoupe(CanvasDrawingSession ds, Vector2 size, int w, int h)
+    {
+        if (!_showLoupe || _pointerWorld is not { } pw || _spaceDown || _drag is DragKind.Pan or DragKind.Split or DragKind.Minimap) return;
+        var cursor = ToScreen(pw);
+        if (InMinimap(cursor)) return;
+        const float gap = 28;
+        var center = cursor + new Vector2(LoupeRadius + gap, -(LoupeRadius + gap));
+        if (center.X + LoupeRadius > size.X - 8) center.X = cursor.X - LoupeRadius - gap;
+        if (center.Y - LoupeRadius < 8) center.Y = cursor.Y + LoupeRadius + gap;
+
+        float savedZoom = _zoom;
+        var savedPan = _pan;
+        _zoom = Math.Min(_zoom * LoupeFactor, MaxZoom * 2);
+        _pan = center - pw * _zoom;
+        try
+        {
+            ds.FillCircle(center, LoupeRadius, Workbench);
+            using var clip = CanvasGeometry.CreateCircle(ds, center, LoupeRadius);
+            using (ds.CreateLayer(1f, clip))
+            {
+                ds.Transform = Matrix3x2.CreateScale(_zoom) * Matrix3x2.CreateTranslation(_pan);
+                DrawScene(ds, w, h);
+                ds.Transform = Matrix3x2.Identity;
+                DrawBrushPreview(ds);
+                DrawLinePreview(ds);
+                DrawDirectionPreview(ds);
+                if (_tool != EditTool.Brush)
+                {
+                    // krzyżyk w punkcie kursora
+                    ds.DrawLine(center.X - 9, center.Y, center.X + 9, center.Y, Color.FromArgb(200, 0, 0, 0), 3);
+                    ds.DrawLine(center.X, center.Y - 9, center.X, center.Y + 9, Color.FromArgb(200, 0, 0, 0), 3);
+                    ds.DrawLine(center.X - 8, center.Y, center.X + 8, center.Y, Colors.White, 1.2f);
+                    ds.DrawLine(center.X, center.Y - 8, center.X, center.Y + 8, Colors.White, 1.2f);
+                }
+            }
+        }
+        finally
+        {
+            _zoom = savedZoom;
+            _pan = savedPan;
+            ds.Transform = Matrix3x2.Identity;
+        }
+        ds.DrawCircle(center, LoupeRadius + 1.5f, Color.FromArgb(220, 0, 0, 0), 4);
+        ds.DrawCircle(center, LoupeRadius, Thread, 2.5f);
+        using var label = new Microsoft.Graphics.Canvas.Text.CanvasTextFormat { FontSize = 11, HorizontalAlignment = Microsoft.Graphics.Canvas.Text.CanvasHorizontalAlignment.Center };
+        ds.DrawText($"{LoupeFactor:0}×", center.X, center.Y + LoupeRadius - 20, Colors.White, label);
     }
 
     private void DrawWeave(CanvasDrawingSession ds, Vector2 size)
@@ -444,6 +581,20 @@ public sealed partial class PatternView : UserControl
     private void DrawHighlights(CanvasDrawingSession ds, Win2DSurface surface)
     {
         if (_analysis is null) return;
+        // obszary z ostrzeżeniem (np. za wąskie na wypełnienie) — półprzezroczysta czerwień
+        if (_warnings is { Count: > 0 } warn && _mode != ViewMode.Original)
+        {
+            var red = Color.FromArgb(255, 255, 70, 70);
+            var fill = Color.FromArgb(115, 255, 70, 70);
+            foreach (int r in warn)
+            {
+                if (r < 0 || r >= _analysis.RegionCount) continue;
+                var g = _cache.Get(ds, _analysis.RegionPaths[r], out bool owned);
+                ds.FillGeometry(g, fill);
+                ds.DrawGeometry(g, red, 2f / _zoom);
+                if (owned) g.Dispose();
+            }
+        }
         if (_selected >= 0 && _selected < _analysis.RegionCount)
         {
             var p = _analysis.RegionPaths[_selected];
@@ -604,7 +755,13 @@ public sealed partial class PatternView : UserControl
         if (_doc is null) return;
         var world = ToWorld(pos);
 
-        if (props.IsMiddleButtonPressed || (props.IsLeftButtonPressed && _spaceDown))
+        if (props.IsLeftButtonPressed && InMinimap(pos))
+        {
+            // minimapa: klik albo przeciąganie przesuwa widok
+            CenterOnMinimap(pos);
+            BeginDrag(DragKind.Minimap, pos, e);
+        }
+        else if (props.IsMiddleButtonPressed || (props.IsLeftButtonPressed && _spaceDown))
         {
             BeginDrag(DragKind.Pan, pos, e);
         }
@@ -684,6 +841,9 @@ public sealed partial class PatternView : UserControl
                 _pan = _panStart + (pos - _dragStart);
                 _needsFit = false;
                 break;
+            case DragKind.Minimap:
+                CenterOnMinimap(pos);
+                break;
             case DragKind.Split when _doc is not null:
                 _split = Math.Clamp((pos.X - _pan.X) / (_doc.Width * _zoom), 0, 1);
                 break;
@@ -698,7 +858,10 @@ public sealed partial class PatternView : UserControl
                 int line = _tool == EditTool.Select && _mode != ViewMode.Original ? LineAt(world) : -1;
                 if (line != _hoverLine) _hoverLine = line;
                 SetHover(RegionAt(world));
-                if (_mode == ViewMode.Compare) UpdateCursor(NearSplit(pos));
+                bool overMinimap = InMinimap(pos);
+                if (overMinimap) ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Hand);
+                else if (_mode == ViewMode.Compare || _wasOverMinimap) UpdateCursor(NearSplit(pos));
+                _wasOverMinimap = overMinimap;
                 break;
         }
         _canvas.Invalidate();

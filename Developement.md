@@ -3,18 +3,24 @@
 Lista rzeczy, których jeszcze nie ma. Gotowe funkcje opisuje [CHANGELOG.md](CHANGELOG.md).
 Orientacyjna ilość pracy: **[S]** mała, **[M]** średnia, **[L]** duża.
 
-## ✅ Zrobione w 1.1
+## ✅ Zrobione
 
-Wykrywanie tła (jako opcja), kierunek ściegu, linie detali, tryb projektora, zużycie nici i czas szycia.
+- **1.1:** wykrywanie tła (jako opcja), kierunek ściegu, linie detali, tryb projektora, zużycie nici i czas szycia.
+- **1.2:** aktualizacje jak w Kasetowniku, autozapis z przywracaniem po awarii, ostrzeżenie o obszarach za wąskich
+  na wypełnienie (i zamiana pasków na linie), kolejność szycia od spodu do wierzchu, linie do kalkowania, kalibracja
+  drukarki.
+- **1.3:** „Moje nici” w CSV, metry na szpulce z ostrzeżeniem o braku nici, gęstość wypełnienia, kolor tkaniny
+  z ostrzeżeniem o słabym kontraście, lupa i minimapa, odhaczanie i siatka 1 cm w projektorze.
+
 Szczegóły w [CHANGELOG.md](CHANGELOG.md).
 
 ## ⭐ Na początek (największy zysk za najmniej pracy)
 
-1. **Za małe na wypełnienie [S]** — obszary węższe niż ok. 3 mm na czerwono, z przyciskiem „zamień na linię detalu”.
-2. **Linie do kalkowania [S]** — przerywana albo szara linia i wydruk bez numerów, pod pisak znikający i stabilizator.
-3. **Kalibracja drukarki [S]** — wydruk testowy z linijkami i poprawka skali, jak w projektorze.
-4. **Autozapis i przywracanie po awarii [S]** — żadna praca nie przepadnie.
-5. **Mądrzejsza kolejność szycia [M]** — najpierw to, co „pod spodem”, przy jak najmniejszej liczbie zmian nici.
+1. **Napisy [M]** — imię albo data na prezent: tekst zamieniony na linie detali albo obszary.
+2. **Ekran powitalny z miniaturami [S]** — ostatnie projekty jako obrazki.
+3. **Historia zmian jako lista [S]** — „Wiaderko: dach → Żółty”, skok do dowolnego kroku.
+4. **Wiaderko na oryginale [S]** — szybkie wydzielenie fragmentu, którego upraszczanie nie złapało.
+5. **Zamiana palety [S]** — cały wzór w pastelach, sepii albo w trzech odcieniach jednego koloru.
 
 ## 🧵 Upraszczanie
 
@@ -24,7 +30,7 @@ Szczegóły w [CHANGELOG.md](CHANGELOG.md).
   (mniejsza najmniejsza plama i cieńsze paski). Reszta upraszcza się mocniej.
 - **Tryb „szkic nicią” [M]:** zamiast plam same linie — kontury i kreski cieniowania z wykrywania krawędzi (XDoG).
   To popularny styl haftu z wolnej ręki: czarna nić na jasnej tkaninie, jak rysunek ołówkiem. Wynik od razu
-  trafiłby do linii detali, więc można go poprawiać jak każdą linię.
+  trafiłby do linii detali (środkowe linie umiemy już liczyć — jak przy „paskach na linie”).
 - **Tryb „jedna linia” [L]:** cały obrazek jako jedna ciągła ścieżka (gęstsza tam, gdzie ciemniej) — szyje się
   bez obcinania nici. Rozmieszczenie punktów (stippling) i trasa jak w problemie komiwojażera.
 - **Cieniowanie zamiast twardych granic [M]:** w gradientach (niebo, policzki) program proponuje 2–3 odcienie
@@ -43,12 +49,10 @@ Szczegóły w [CHANGELOG.md](CHANGELOG.md).
 - **Kierunek wzdłuż faktury zdjęcia [M]:** dziś automatyczny kierunek idzie wzdłuż kształtu plamy. Dla sierści,
   włosów czy piór lepszy byłby kierunek „włosa” odczytany z oryginału (tensor struktury), także zmienny wewnątrz
   jednej plamy — kilka strzałek zamiast jednej.
-- **Mądrzejsza kolejność szycia [M]:** najpierw to, co jest „pod spodem” (tło, duże plamy), potem to, co na wierzchu,
-  a przy tym jak najmniej zmian nici. Podpowiedź „ta nić ma 7 obszarów, przeskakuj między nimi w tej kolejności”.
-- **Nić na szpulce [S]:** w „Moich niciach” ilość nici na szpulce; legenda ostrzega „ta nić skończy się w połowie”
-  i podaje liczbę szpulek. Gęstość wypełnienia do wyboru (gęsto / średnio / szkicowo) zamiast jednego założenia.
-- **Za małe na wypełnienie [S]:** zaznaczenie na czerwono obszarów, które w rzeczywistym rozmiarze są węższe niż
-  ok. 3 mm (trudne do wypełnienia ściegiem) — z propozycją „połącz z sąsiadem” albo „zamień na linię detalu”.
+- **Trasa po obszarach jednej nici [M]:** kolejność kolorów jest już „od spodu do wierzchu”; brakuje podpowiedzi,
+  w jakiej kolejności przeskakiwać między obszarami tej samej nici (najkrótsza trasa, małe numerki 1a, 1b…).
+- **Lista zakupów nici [S]:** nici, których we wzorze brakuje w pudełku albo zabraknie na szpulce — jedna kartka
+  do sklepu, z numerami producenta.
 - **Podpowiedź flizeliny [S]:** przy dużych, gęsto wypełnionych obszarach informacja o stabilizatorze i tamborku.
 - **Realistyczny podgląd haftu [L]:** obszary narysowane „nitkami” w kierunku ze strzałek — tekstura ściegu, połysk,
   cień. Widać, jak wzór będzie wyglądał wyszyty, zanim się zacznie.
@@ -61,20 +65,14 @@ Szczegóły w [CHANGELOG.md](CHANGELOG.md).
 - **Edycja konturu [L]:** przeciąganie punktów linii, wygładzanie fragmentu, prostowanie odcinka. Mapa kolorów
   aktualizuje się według nowej linii.
 - **Zaznaczanie wielu obszarów [M]:** lasso albo Shift+klik, a potem jedna operacja dla wszystkich (kolor, połączenie,
-  usunięcie, kierunek ściegu).
+  usunięcie, kierunek ściegu, zamiana na linie).
 - **Wiaderko na oryginale [S]:** klik w zdjęcie z tolerancją koloru — szybkie wydzielenie fragmentu, którego
   upraszczanie nie złapało.
-- **Lupa i minimapa [S]:** przy malowaniu drobnych detali powiększenie pod kursorem i mały podgląd całości w rogu.
 - **Historia zmian jako lista [S]:** „Wiaderko: dach → Żółty”, „Nowa linia detalu” — skok do dowolnego kroku.
 
 ## 🖨️ Przeniesienie na tkaninę
 
-- **Linie do kalkowania [S]:** kreska przerywana albo kropki zamiast ciągłej linii, cienka szarość zamiast czerni,
-  wydruk bez numerów — wersje pod pisak znikający, kopiowanie przez szybę i druk na stabilizatorze rozpuszczalnym.
-- **Kalibracja drukarki [S]:** wydruk testowy z linijkami i poprawka skali X/Y oraz przesunięcia (jak w Kasetowniku
-  i w projektorze), bo część drukarek drukuje 1–2% mniej mimo „100%”.
-- **Projektor: odhaczanie odrysowanych fragmentów [S]:** klik w obszar przygasza jego kontur, żeby było widać,
-  co już jest na tkaninie; do tego siatka pomocnicza co 1 cm.
+- **Kalibracja dla kilku drukarek [S]:** dziś jedna korekta skali; osobna dla każdej drukarki (po nazwie z okna drukowania).
 - **Szablony do aplikacji [M]:** kształty wybranych kolorów jako osobne elementy do wycięcia z tkaniny, z zapasem
   na podwinięcie i znacznikiem, która strona jest prawa. Ułożone oszczędnie na kartce.
 - **Eksport dla maszyn hafciarskich [L]:** pliki PES/DST z automatycznie wygenerowanym ściegiem (wypełnienie w kierunku
@@ -85,17 +83,14 @@ Szczegóły w [CHANGELOG.md](CHANGELOG.md).
 
 - **Katalogi producentów [M]:** gotowe palety z numerami (np. Ariadna, Madeira, Gütermann), wybór „mam nici tej firmy”
   i dopasowanie z numerem katalogowym w legendzie. Dane z otwartych tabel kolorów; import z CSV.
-- **Import i eksport „Moich nici” [S]:** plik CSV (nazwa, kolor, numer, ilość na szpulce) — przeniesienie pudełka
-  na inny komputer albo wymiana z koleżanką.
-- **Kolor tkaniny [S]:** wybór koloru materiału (len, czarny, jeans). Podgląd i podbarwienie wzoru pokazują,
-  jak nici wyglądają na tym tle, a kolor „tkanina” dobiera się sam.
+- **Faktura tkaniny w podglądzie [S]:** splot lnu, jeansu czy filcu zamiast jednolitego koloru materiału.
 - **Kolory nici ze zdjęcia szpulek [M]:** zdjęcie pudełka z nićmi, klik w każdą szpulkę i dodanie do „Moich nici”.
 - **Zamiana palety [S]:** cały wzór w innym nastroju (pastele, sepia, monochrom w 3 odcieniach jednego koloru)
   jednym kliknięciem — przydatne przy ozdobach na prezent.
 
 ## 🗂️ Wygoda
 
-- **Autozapis i przywracanie po awarii [S]** oraz lista ostatnich projektów z miniaturami na ekranie powitalnym **[S]**.
+- **Ekran powitalny z miniaturami [S]:** ostatnie projekty jako obrazki, nie tylko nazwy.
 - **Miniatury .wyszycie w Eksploratorze [L]** — rozszerzenie powłoki pokazujące podgląd w kolorach.
 - **Biblioteka wzorów [M]:** ekran z miniaturami wszystkich projektów, tagami i wyszukiwaniem.
 - **Wiele obrazków naraz [S]:** przeciągnięcie kilku plików otwiera je jako kolejne projekty albo robi z nich PDF-y
@@ -107,11 +102,12 @@ Szczegóły w [CHANGELOG.md](CHANGELOG.md).
 
 - **Podpisany exe [M]:** niepodpisany plik pobrany z internetu wywołuje ostrzeżenie SmartScreen. Certyfikat
   (np. przez Azure Trusted Signing) i podpis w GitHub Actions usuną ten problem.
-- **ARM64 w GitHub Actions [S]:** druga paczka dla laptopów z Snapdragonem (publish.ps1 już to obsługuje).
+- **ARM64 w GitHub Actions [S]:** druga paczka dla laptopów z Snapdragonem (publish.ps1 już to obsługuje); aktualizacja
+  wybierałaby plik dla swojej architektury.
 - **winget [S]:** manifest w repozytorium winget-pkgs po każdym wydaniu — instalacja jednym poleceniem.
 - **Szybsze kontury po pędzlu [M]:** po poprawce przeliczany tylko zmieniony fragment, a nie cały wzór.
   Przy dużych obrazkach edycja będzie płynniejsza.
 - **Testy wydruku na obrazach [S]:** kartki renderowane do PNG i porównywane z wzorcami — wykrywa przypadkowe
   zmiany w wyglądzie PDF/druku.
 - **Testy interfejsu [M]:** automatyczne klikanie w oknie (UI Automation) w GitHub Actions — otwarcie obrazka,
-  wiaderko, linia detalu, kierunek ściegu, cofnięcie, eksport, projektor.
+  wiaderko, linia detalu, kierunek ściegu, aktualizacja z testowego serwera, autozapis, cofnięcie, eksport, projektor.

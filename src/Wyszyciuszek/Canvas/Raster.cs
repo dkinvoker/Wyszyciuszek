@@ -11,7 +11,7 @@ internal static class Raster
     private static int MaxPixels => Math.Min(16384, (int)CanvasDevice.GetSharedDevice().MaximumBitmapSizeInPixels);
 
     /// <summary>Strona wydruku w rozdzielczości <paramref name="dpi"/> (białe tło).</summary>
-    public static CanvasRenderTarget RenderPage(PatternComposer composer, int page, float dpi)
+    public static CanvasRenderTarget RenderPage(IPageSource composer, int page, float dpi)
     {
         var (wmm, hmm) = composer.PageSize(page);
         dpi = Math.Min(dpi, (float)(MaxPixels / (Math.Max(wmm, hmm) / 25.4)));

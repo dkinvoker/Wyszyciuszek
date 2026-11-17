@@ -34,7 +34,8 @@ public sealed class EditorSession
     private const ChangeKind Everything = ChangeKind.Labels | ChangeKind.PaletteColors | ChangeKind.PaletteStructure | ChangeKind.Annotations;
 
     private sealed record Snapshot(
-        int Width, int Height, byte[] Labels, PaletteEntry[] Palette, DetailLine[] Lines, StitchHint[] Hints, string? Key, DateTime Time);
+        int Width, int Height, byte[] Labels, PaletteEntry[] Palette, DetailLine[] Lines, StitchHint[] Hints, Rgb? Fabric,
+        string? Key, DateTime Time);
 
     private readonly List<Snapshot> _undo = [];
     private readonly List<Snapshot> _redo = [];
@@ -61,11 +62,15 @@ public sealed class EditorSession
 
     public void MarkSaved() => IsDirty = false;
 
+    /// <summary>Projekt ma niezapisane zmiany (np. przywrócony z autozapisu).</summary>
+    public void MarkDirty() => IsDirty = true;
+
     private Snapshot Capture(string? key) => new(
         Document.Width, Document.Height, (byte[])Document.Labels.Clone(),
         Document.Palette.Select(p => p.Clone()).ToArray(),
         Document.Lines.Select(l => l.Clone()).ToArray(),
         Document.StitchHints.Select(h => h.Clone()).ToArray(),
+        Document.FabricColor,
         key, Clock());
 
     /// <summary>Zapamiętuje stan przed zmianą. Zmiany z tym samym kluczem w krótkim odstępie łączą się w jeden krok.</summary>
@@ -92,6 +97,7 @@ public sealed class EditorSession
         Document.Palette = s.Palette.Select(p => p.Clone()).ToList();
         Document.Lines = s.Lines.Select(l => l.Clone()).ToList();
         Document.StitchHints = s.Hints.Select(h => h.Clone()).ToList();
+        Document.FabricColor = s.Fabric;
     }
 
     private void Raise(ChangeKind kind)
@@ -229,6 +235,35 @@ public sealed class EditorSession
         return true;
     }
 
+    /// <summary>
+    /// Zamienia obszary na linie detali w ich kolorze: środkowa linia każdej plamy zostaje jako linia, a sama plama
+    /// wtapia się w sąsiadów. Jeden krok cofania. Zwraca liczbę nowych linii.
+    /// </summary>
+    public int ConvertRegionsToLines(Components components, IReadOnlyCollection<int> regions)
+    {
+        if (components.Map.Length != Document.Labels.Length || regions.Count == 0) return 0;
+        var labels = (byte[])Document.Labels.Clone();
+        var lines = new List<DetailLine>();
+        foreach (int r in regions.Distinct())
+        {
+            if (r < 0 || r >= components.Count || !ValidColor(components.Label[r])) continue;
+            // jedna plama może dać kilka linii (np. trzy wąsy zbiegające się w jednym miejscu)
+            var found = Vector.Centerline.Lines(components, r)
+                .Select(points => new DetailLine { Points = points, Color = components.Label[r] })
+                .Where(l => l.Points.Count >= 2 && l.Length >= 1.5f)
+                .ToList();
+            if (found.Count == 0) continue;
+            if (LabelOps.DissolveRegion(labels, components, r) == 0) continue; // cały obraz — nie ma w co wtopić
+            lines.AddRange(found);
+        }
+        if (lines.Count == 0) return 0;
+        PushUndo();
+        Document.Labels = labels;
+        Document.Lines.AddRange(lines);
+        Raise(ChangeKind.Labels | ChangeKind.Annotations);
+        return lines.Count;
+    }
+
     public bool DeleteLine(int index)
     {
         if (index < 0 || index >= Document.Lines.Count) return false;
@@ -306,6 +341,26 @@ public sealed class EditorSession
     /// Kolor tła (dominujący na brzegach obrazka) oznacza jako tkaninę albo zdejmuje to oznaczenie.
     /// Zwraca indeks koloru tła albo −1, gdy obrazek nie ma wyraźnego tła.
     /// </summary>
+    /// <summary>
+    /// Ustala kolor materiału (null — bez). Jeśli żaden kolor wzoru nie jest jeszcze tkaniną, a któryś jest prawie
+    /// taki jak materiał — dostaje oznaczenie „tkanina” (np. białe tło na białym płótnie). Zwraca indeks tak
+    /// oznaczonego koloru albo −1.
+    /// </summary>
+    public int SetFabricColor(Rgb? color)
+    {
+        if (Document.FabricColor == color) return -1;
+        PushUndo("fabric"); // przeciąganie w próbniku koloru = jeden krok cofania
+        Document.FabricColor = color;
+        int marked = -1;
+        if (color is { } c && !Document.Palette.Any(p => p.IsFabric) && Fabrics.Closest(Document, c) is var i and >= 0)
+        {
+            Document.Palette[i].IsFabric = true;
+            marked = i;
+        }
+        Raise(ChangeKind.PaletteColors);
+        return marked;
+    }
+
     public int SetBackgroundFabric(bool fabric)
     {
         if (!Document.HasPattern) return -1;
@@ -364,15 +419,15 @@ public sealed class EditorSession
     }
 
     /// <summary>Sortuje paletę: od największej powierzchni albo od najjaśniejszego koloru.</summary>
-    public void SortPalette(bool byLightness)
+    public void SortPalette(bool byLightness) => SortPalette(byLightness ? PaletteOrder.Lightness : PaletteOrder.Area);
+
+    /// <summary>Układa paletę (tkanina zawsze pierwsza — nie szyjemy jej). Zwraca false, gdy kolejność już taka była.</summary>
+    public bool SortPalette(PaletteOrder mode)
     {
-        var hist = LabelOps.Histogram(Document.Labels, Document.Palette.Count);
-        var order = Enumerable.Range(0, Document.Palette.Count)
-            .OrderBy(i => Document.Palette[i].IsFabric ? 0 : 1) // tkanina zawsze pierwsza — nie szyjemy jej
-            .ThenByDescending(i => byLightness ? Document.Palette[i].Color.Luminance : hist[i])
-            .ToList();
-        if (order.SequenceEqual(Enumerable.Range(0, order.Count))) return;
+        var order = StitchOrder.Compute(Document.Labels, Document.Width, Document.Height, Document.Palette, mode);
+        if (order.SequenceEqual(Enumerable.Range(0, order.Count))) return false;
         ApplyOrder(order);
+        return true;
     }
 
     /// <summary>Zamienia kolory palety na najbliższe nici z listy (kolor i nazwa).</summary>

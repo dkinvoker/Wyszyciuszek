@@ -42,6 +42,13 @@ internal sealed partial class ProjectorWindow : Window
 
     private PatternDocument? _doc;
     private PatternComposer? _composer;
+    private PatternAnalysis? _analysis;
+    /// <summary>Obszary już odrysowane na tkaninie (kliknięte) — przygaszone.</summary>
+    private readonly HashSet<int> _done = [];
+    private bool _grid;
+    /// <summary>Ostatnie przekształcenie piksele wzoru → ekran (do trafiania kliknięciem w obszar).</summary>
+    private Matrix3x2 _designToScreen = Matrix3x2.Identity;
+    private ToggleButton? _gridButton;
 
     private bool _dark = AppInfo.Settings.ProjectorDark;
     private bool _mirror, _numbers = true, _arrows;
@@ -93,6 +100,9 @@ internal sealed partial class ProjectorWindow : Window
         tools.Children.Add(_arrowsButton);
         tools.Children.Add(_darkButton);
         tools.Children.Add(_threadButton);
+        _gridButton = Toggle("Siatka", "Siatka co 1 cm (G)", () => { _grid = !_grid; Sync(); });
+        tools.Children.Add(_gridButton);
+        tools.Children.Add(Btn("Wyczyść odhaczone", "Klik w obszar odhacza go jako odrysowany; tu zdejmiesz wszystkie odhaczenia (Delete)", () => { _done.Clear(); Sync(); }));
         tools.Children.Add(Btn("Środek", "Wyśrodkuj wzór (0)", () => { _offsetMm = Vector2.Zero; Sync(); }));
         tools.Children.Add(Btn("Inny ekran", "Przenieś na następny ekran / projektor (S)", NextScreen));
         tools.Children.Add(Btn("Zamknij", "Wyjdź z trybu projektora (Esc)", Close));
@@ -177,6 +187,9 @@ internal sealed partial class ProjectorWindow : Window
     /// <summary>Nowy stan wzoru (po każdej zmianie w oknie głównym).</summary>
     public void SetPattern(PatternDocument? doc, PatternAnalysis? analysis)
     {
+        // nowe kontury = nowe numery obszarów — odhaczenia tracą sens
+        if (!ReferenceEquals(analysis, _analysis)) _done.Clear();
+        _analysis = analysis;
         _doc = doc;
         _composer = doc is not null && analysis is not null && analysis.Width == doc.Width && analysis.Height == doc.Height
             ? new PatternComposer(doc, analysis)
@@ -332,6 +345,7 @@ internal sealed partial class ProjectorWindow : Window
         m *= Matrix3x2.CreateRotation(_rotation * MathF.PI / 2);
         m *= Matrix3x2.CreateTranslation(_offsetMm) * Matrix3x2.CreateScale(dip) * Matrix3x2.CreateTranslation(size / 2);
         ds.Transform = m;
+        _designToScreen = m;
 
         float minLine = 1.4f / (dip * mmPerPx); // co najmniej ~1,4 punktu ekranu
         var style = new DesignStyle
@@ -347,6 +361,8 @@ internal sealed partial class ProjectorWindow : Window
         try
         {
             _composer.DrawDesign(surface, style);
+            if (_grid) DrawGrid(surface, w, h, k, minLine);
+            DrawDone(ds, surface, paper, style.LineWidth);
             // obrys wzoru i krzyżyk w środku — do ułożenia tamborka
             var frameColor = _dark ? new Rgb(110, 110, 110) : new Rgb(150, 150, 150);
             surface.Stroke(Shapes.Rect(0, 0, w, h), frameColor, minLine, [3 * k, 2 * k]);
@@ -358,6 +374,61 @@ internal sealed partial class ProjectorWindow : Window
         }
         ds.Transform = Matrix3x2.Identity;
         _cache.EndFrame();
+    }
+
+    /// <summary>Siatka co 1 cm (od lewego górnego rogu wzoru), z wyraźniejszą linią co 5 cm — do mierzenia i prostowania.</summary>
+    private void DrawGrid(Win2DSurface surface, int w, int h, float k, float minLine)
+    {
+        var faint = _dark ? new Rgb(52, 52, 52) : new Rgb(218, 218, 218);
+        var strong = _dark ? new Rgb(80, 80, 80) : new Rgb(190, 190, 190);
+        float step = 10 * k; // 10 mm w pikselach wzoru
+        float margin = 2 * step;
+        var thin = new PathData();
+        var thick = new PathData();
+        for (int i = (int)Math.Floor(-margin / step); i * step <= w + margin; i++)
+        {
+            var target = i % 5 == 0 ? thick : thin;
+            target.MoveTo(new Vector2(i * step, -margin));
+            target.LineTo(new Vector2(i * step, h + margin));
+        }
+        for (int j = (int)Math.Floor(-margin / step); j * step <= h + margin; j++)
+        {
+            var target = j % 5 == 0 ? thick : thin;
+            target.MoveTo(new Vector2(-margin, j * step));
+            target.LineTo(new Vector2(w + margin, j * step));
+        }
+        surface.Stroke(thin, faint, minLine);
+        surface.Stroke(thick, strong, minLine);
+    }
+
+    /// <summary>Odhaczone obszary: lekko zabarwione i z przygaszonym konturem — widać, co już jest na tkaninie.</summary>
+    private void DrawDone(CanvasDrawingSession ds, Win2DSurface surface, Rgb paper, float lineWidth)
+    {
+        if (_done.Count == 0 || _analysis is null) return;
+        var tint = _dark ? Color.FromArgb(70, 60, 180, 90) : Color.FromArgb(70, 60, 170, 90);
+        var dim = _dark ? new Rgb(75, 75, 75) : new Rgb(200, 200, 200);
+        foreach (int r in _done)
+        {
+            if (r < 0 || r >= _analysis.RegionCount) continue;
+            var path = _analysis.RegionPaths[r];
+            var g = _cache.Get(ds, path, out bool owned);
+            ds.FillGeometry(g, tint);
+            if (owned) g.Dispose();
+            surface.Stroke(path, paper, lineWidth * 1.8f); // zgaś jasną linię…
+            surface.Stroke(path, dim, lineWidth);          // …i narysuj przygaszoną
+        }
+    }
+
+    /// <summary>Kliknięcie (bez przesuwania) w obszar — odhacza go albo zdejmuje odhaczenie.</summary>
+    private void ToggleDone(Vector2 screen)
+    {
+        if (_analysis is null || _doc is null || !Matrix3x2.Invert(_designToScreen, out var toDesign)) return;
+        int r = _analysis.HitTest(Vector2.Transform(screen, toDesign));
+        if (r < 0) return;
+        var color = _analysis.Regions[r].Color;
+        if (color < _doc.Palette.Count && _doc.Palette[color].IsFabric) return; // tkaniny się nie odrysowuje
+        if (!_done.Remove(r)) _done.Add(r);
+        Sync();
     }
 
     private void DrawCalibration(CanvasDrawingSession ds, Vector2 size, float dip, Rgb ink)
@@ -395,12 +466,14 @@ internal sealed partial class ProjectorWindow : Window
         _numbersButton.IsChecked = _numbers;
         _arrowsButton.IsChecked = _arrows;
         _darkButton.IsChecked = _dark;
+        if (_gridButton is not null) _gridButton.IsChecked = _grid;
         if (_doc is not null && _highlight >= 0 && _highlight < _doc.Palette.Count)
             _threadButton.Content = $"Nić {_doc.ThreadLabel(_highlight)}: {PatternComposer.Fit(_doc.Palette[_highlight].Name, 4, false, 60)}";
         else
             _threadButton.Content = "Nić: wszystkie";
         _info.Text = $"1:1 · {_pxPerMm.ToString("0.00", CultureInfo.GetCultureInfo("pl-PL"))} px/mm · {_screenName}"
-                     + (_rotation != 0 ? $" · obrót {_rotation * 90}°" : "");
+                     + (_rotation != 0 ? $" · obrót {_rotation * 90}°" : "")
+                     + (_done.Count > 0 ? $" · odhaczone: {_done.Count}" : " · klik w obszar = odhacz");
 
         _calCard.Visibility = _calibrating ? Visibility.Visible : Visibility.Collapsed;
         if (_calibrating) _bar.Visibility = Visibility.Collapsed;
@@ -504,7 +577,14 @@ internal sealed partial class ProjectorWindow : Window
     {
         if (!_dragging) return;
         _dragging = false;
+        var pos = e.GetCurrentPoint(_canvas).Position.ToVector2();
         _canvas.ReleasePointerCapture(e.Pointer);
+        // bez przesunięcia = kliknięcie: odhacz obszar (przesunięcie wzoru wraca do stanu sprzed wciśnięcia)
+        if (Vector2.Distance(pos, _dragStart) < 5)
+        {
+            _offsetMm = _offsetStart;
+            ToggleDone(pos);
+        }
     }
 
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
@@ -541,6 +621,8 @@ internal sealed partial class ProjectorWindow : Window
             case VirtualKey.M: _mirror = !_mirror; break;
             case VirtualKey.N: _numbers = !_numbers; break;
             case VirtualKey.K: _arrows = !_arrows; break;
+            case VirtualKey.G: _grid = !_grid; break;
+            case VirtualKey.Delete: case VirtualKey.Back: _done.Clear(); break;
             case VirtualKey.I:
                 _dark = !_dark;
                 AppInfo.Settings.ProjectorDark = _dark;

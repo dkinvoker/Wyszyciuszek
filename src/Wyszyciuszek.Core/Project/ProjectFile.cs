@@ -37,6 +37,7 @@ public static class ProjectFile
                 Color = l.Color,
                 Points = l.Points.SelectMany(p => new[] { MathF.Round(p.X, 2), MathF.Round(p.Y, 2) }).ToArray(),
             }).ToList(),
+            Fabric = doc.FabricColor?.Hex,
             Stitches = doc.StitchHints.Count == 0 ? null : doc.StitchHints.Select(h => new StitchDto
             {
                 X = MathF.Round(h.Point.X, 2), Y = MathF.Round(h.Point.Y, 2), Angle = MathF.Round(h.Angle, 1),
@@ -96,6 +97,7 @@ public static class ProjectFile
                     Points = Enumerable.Range(0, l.Points!.Length / 2).Select(i => new Vector2(l.Points[2 * i], l.Points[2 * i + 1])).ToList(),
                 }).ToList(),
             StitchHints = (dto.Stitches ?? []).Select(s => new StitchHint { Point = new Vector2(s.X, s.Y), Angle = s.Angle }).ToList(),
+            FabricColor = Rgb.TryParse(dto.Fabric, out var fabric) ? fabric : null,
         };
 
         if (zip.GetEntry("labels.bin") is { } labels)
@@ -118,6 +120,23 @@ public static class ProjectFile
             doc.SourceImage = ms.ToArray();
         }
         return doc;
+    }
+
+    /// <summary>Sam tytuł projektu (bez wczytywania mapy kolorów i obrazka); null — to nie jest plik projektu.</summary>
+    public static string? ReadTitle(string path)
+    {
+        try
+        {
+            using var zip = ZipFile.OpenRead(path);
+            if (zip.GetEntry("project.json") is not { } entry) return null;
+            using var s = entry.Open();
+            var dto = JsonSerializer.Deserialize(s, ProjectJson.Default.ProjectDto);
+            return dto is null ? null : string.IsNullOrWhiteSpace(dto.Title) ? "Wzór" : dto.Title;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public static PatternDocument Load(string path)
@@ -149,6 +168,8 @@ internal sealed class ProjectDto
     public PrintSettings? Print { get; set; }
     public List<LineDto>? Lines { get; set; }
     public List<StitchDto>? Stitches { get; set; }
+    /// <summary>Kolor materiału (#RRGGBB); starsze wersje go pomijają — to tylko podgląd.</summary>
+    public string? Fabric { get; set; }
 }
 
 internal sealed class LineDto

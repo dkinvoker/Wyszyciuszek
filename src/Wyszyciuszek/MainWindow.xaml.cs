@@ -63,6 +63,7 @@ public sealed partial class MainWindow : Window
         SetupControls();
         SetupView();
         SetupUpdates();
+        SetupAutosave();
 
         VersionText.Text = AppInfo.Version;
         UpdateAll();
@@ -111,8 +112,18 @@ public sealed partial class MainWindow : Window
             _projector?.Close();
             View.Shutdown();
         };
-        RootHost.Loaded += (_, _) => UpdateCaptionInset();
-        AppWindow.Changed += (_, _) => UpdateCaptionInset();
+        RootHost.Loaded += (_, _) =>
+        {
+            UpdateCaptionInset();
+            UpdateTitleBarPassthrough();
+        };
+        AppWindow.Changed += (_, _) =>
+        {
+            UpdateCaptionInset();
+            UpdateTitleBarPassthrough();
+        };
+        VersionButton.SizeChanged += (_, _) => UpdateTitleBarPassthrough();
+        TitleBar.SizeChanged += (_, _) => UpdateTitleBarPassthrough();
         RootHost.KeyDown += Root_KeyDown;
     }
 
@@ -195,6 +206,7 @@ public sealed partial class MainWindow : Window
     {
         _simplifyCts?.Cancel();
         _analysisCts?.Cancel();
+        DiscardAutosave(); // poprzedni projekt zapisano albo świadomie odrzucono
         _simplifyTimer.Stop();
         if (!ReferenceEquals(_image, image)) _image?.Dispose();
         _image = image;
@@ -221,6 +233,7 @@ public sealed partial class MainWindow : Window
 
     private void OnSessionChanged(ChangeKind kind)
     {
+        _changeCount++;
         if (kind.HasFlag(ChangeKind.Labels))
         {
             View.CheckSize();
@@ -430,10 +443,11 @@ public sealed partial class MainWindow : Window
         }
         try
         {
-            var doc = _session.Document;
+            var doc = _session.Document.Snapshot(); // edycja w trakcie zapisu w tle niczego nie pomiesza
             await Task.Run(() => ProjectFile.Save(doc, path));
             _session.FilePath = path;
             _session.MarkSaved();
+            DiscardAutosave();
             AppInfo.Settings.AddRecent(path);
             AppInfo.SaveSettings();
             UpdateTitle();
@@ -604,6 +618,8 @@ public sealed partial class MainWindow : Window
         BrushSizeText.Text = $"{View.BrushRadius * 2:0} px{mm}";
     }
 
+    private void LoupeToggle_Click(object sender, RoutedEventArgs e) => View.ShowLoupe = LoupeToggle.IsChecked == true;
+
     private void ZoomIn_Click(object sender, RoutedEventArgs e) => View.ZoomBy(1.25f);
     private void ZoomOut_Click(object sender, RoutedEventArgs e) => View.ZoomBy(0.8f);
     private void ZoomFit_Click(object sender, RoutedEventArgs e) => View.FitToView();
@@ -666,6 +682,7 @@ public sealed partial class MainWindow : Window
             case VirtualKey.G: SetTool(EditTool.Fill); break;
             case VirtualKey.B: SetTool(EditTool.Brush); break;
             case VirtualKey.I: SetTool(EditTool.Picker); break;
+            case VirtualKey.L when shift: ConvertSelectedToLine(); break;
             case VirtualKey.L: SetTool(EditTool.Line); break;
             case VirtualKey.D: SetTool(EditTool.Direction); break;
             case VirtualKey.Delete: case VirtualKey.Back: if (!DeleteSelectedLine()) return; break;
@@ -676,6 +693,7 @@ public sealed partial class MainWindow : Window
             case VirtualKey.Number4: SetViewMode(ViewMode.Pattern); break;
             case VirtualKey.Number5: SetViewMode(ViewMode.Overlay); break;
             case VirtualKey.F: View.FitToView(); break;
+            case VirtualKey.Z: LoupeToggle.IsChecked = !(LoupeToggle.IsChecked == true); LoupeToggle_Click(this, new RoutedEventArgs()); break;
             case (VirtualKey)187: case VirtualKey.Add: View.ZoomBy(1.25f); break; // „=/+”
             case (VirtualKey)189: case VirtualKey.Subtract: View.ZoomBy(0.8f); break; // „-”
             case (VirtualKey)219: BrushSlider.Value = Math.Max(BrushSlider.Minimum, BrushSlider.Value / 1.25); break; // [
@@ -788,7 +806,10 @@ public sealed partial class MainWindow : Window
                 var e = d.Palette[info.Color];
                 double cm2 = info.Area * d.MmPerPixel * d.MmPerPixel / 100;
                 var what = e.IsFabric ? "tkanina" : $"nić {d.ThreadLabel(info.Color)}";
-                HintText.Text = $"Zaznaczony obszar: {what} „{e.Name}” · ok. {cm2:0.#} cm² — wiaderkiem (G) nadasz mu inną nić, narzędziem D zmienisz kierunek ściegu.";
+                double width = NarrowRegions.WidthMm(info, d.MmPerPixel);
+                HintText.Text = !e.IsFabric && width < NarrowRegions.DefaultMinWidthMm
+                    ? $"Zaznaczony obszar: {what} „{e.Name}” · szerokość tylko {width:0.#} mm — za wąski na wypełnienie: Shift+L zamieni go na linię detalu."
+                    : $"Zaznaczony obszar: {what} „{e.Name}” · ok. {cm2:0.#} cm² · szerokość {width:0.#} mm — wiaderkiem (G) nadasz mu inną nić, narzędziem D zmienisz kierunek ściegu.";
                 return;
             }
         }
