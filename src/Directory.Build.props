@@ -1,0 +1,24 @@
+<Project>
+
+  <!--
+    Jedno miejsce z numerem wersji dla wszystkich projektów.
+    Major.Minor ustawiasz tutaj (VersionBase), a trzecią część dokłada GitHub Actions — to numer kolejnego
+    budowania (BuildNumber = github.run_number). Każdy push na main daje więc nowe wydanie, np. v1.0.17.
+    Lokalnie (bez BuildNumber) wychodzi 1.0.0.
+  -->
+  <PropertyGroup>
+    <VersionBase>1.0</VersionBase>
+    <BuildNumber Condition="'$(BuildNumber)' == ''">0</BuildNumber>
+    <Version>$(VersionBase).$(BuildNumber)</Version>
+    <!-- we właściwościach pliku sam numer wersji (bez doklejonego hasha commita) -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Product>Wyszyciuszek</Product>
+    <Company>KataPultoza</Company>
+    <Copyright>© 2026 KataPultoza</Copyright>
+
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+</Project>

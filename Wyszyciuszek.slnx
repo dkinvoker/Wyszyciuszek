@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Wyszyciuszek.Core/Wyszyciuszek.Core.csproj" />
+    <Project Path="src/Wyszyciuszek/Wyszyciuszek.csproj" />
+    <Project Path="src/Wyszyciuszek.Launcher/Wyszyciuszek.Launcher.csproj" />
+    <Project Path="src/Wyszyciuszek.Tests/Wyszyciuszek.Tests.csproj" />
+  </Folder>
+</Solution>

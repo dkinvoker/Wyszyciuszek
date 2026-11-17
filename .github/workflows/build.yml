@@ -1,0 +1,101 @@
+# Buduje Wyszyciuszka przy każdym pushu i pull requeście.
+# Push na main (albo ręczne uruchomienie na main) dodatkowo publikuje wydanie w GitHub Releases:
+# tag v<VersionBase>.<numer budowania>, plik Wyszyciuszek.exe (jeden plik) i suma SHA-256 w opisie.
+# Aplikacja sama sprawdza te wydania i proponuje aktualizację.
+
+name: Budowanie i wydanie
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Pobranie kodu
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # pełna historia — do listy zmian od poprzedniego wydania
+
+      - name: .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Testy
+        shell: pwsh
+        run: dotnet test src/Wyszyciuszek.Tests -c Release --logger "console;verbosity=normal"
+
+      - name: Wersja
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content src/Directory.Build.props
+          $base = ($props.Project.PropertyGroup | Where-Object { $_.VersionBase } | Select-Object -First 1).VersionBase
+          $version = "$base.${{ github.run_number }}"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Wersja: $version"
+
+      - name: Publikacja (Native AOT + jeden plik exe)
+        shell: pwsh
+        run: ./publish.ps1 -Arch x64 -BuildNumber ${{ github.run_number }}
+
+      - name: Artefakt
+        uses: actions/upload-artifact@v4
+        with:
+          name: Wyszyciuszek-${{ steps.version.outputs.version }}
+          path: dist/Wyszyciuszek.exe
+          if-no-files-found: error
+
+      - name: Wydanie na GitHubie
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $tag = "v$env:VERSION"
+          $exe = 'dist/Wyszyciuszek.exe'
+          $sha = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $size = '{0:N1}' -f ((Get-Item $exe).Length / 1MB)
+
+          # zmiany od poprzedniego wydania (tytuły commitów)
+          $previous = git tag --list 'v*' --sort=-v:refname | Select-Object -First 1
+          $range = if ($previous) { "$previous..HEAD" } else { 'HEAD' }
+          $changes = git log $range --no-merges --pretty=format:'- %s' -n 40
+          if (-not $changes) { $changes = '- drobne poprawki' }
+
+          $notes = @"
+          ## Co nowego
+          $($changes -join "`n")
+
+          ## Instalacja
+          Pobierz **Wyszyciuszek.exe** ($size MB) i uruchom — to jeden plik, bez instalatora.
+          Przy pierwszym uruchomieniu program rozpakuje się do ``%LOCALAPPDATA%\Wyszyciuszek``, a obok exe pojawi się
+          skrypt **Wyszyciuszek - odinstaluj.cmd**. Starsze wersje zaktualizują się same (program zapyta).
+
+          SHA-256: $sha
+          "@
+
+          $notesFile = Join-Path $env:RUNNER_TEMP 'notes.md'
+          Set-Content -Path $notesFile -Value $notes -Encoding utf8
+          gh release create $tag $exe --title "Wyszyciuszek $env:VERSION" --notes-file $notesFile --target $env:GITHUB_SHA

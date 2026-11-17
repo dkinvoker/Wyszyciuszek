@@ -1,0 +1,446 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Wyszyciuszek.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:canvas="using:Wyszyciuszek.Canvas">
+
+    <UserControl x:Name="RootHost" IsTabStop="False">
+        <Grid x:Name="Root" Background="{StaticResource HaftBg0Brush}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="46" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="28" />
+            </Grid.RowDefinitions>
+
+            <!-- ============ PASEK TYTUŁU ============ -->
+            <Grid x:Name="TitleBar" Background="{StaticResource HaftBg0Brush}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition x:Name="CaptionColumn" Width="140" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0" Spacing="10">
+                    <Image Source="ms-appx:///Assets/AppIcon.png" Width="24" Height="24" VerticalAlignment="Center" />
+                    <StackPanel VerticalAlignment="Center" Spacing="1">
+                        <TextBlock Text="Wyszyciuszek" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource HaftTextBrush}" />
+                        <!-- „przeszycie” pod nazwą -->
+                        <Line X1="0" X2="104" Stroke="{StaticResource HaftThreadBrush}" StrokeThickness="2" StrokeDashArray="2,1.5" />
+                    </StackPanel>
+                    <Border Padding="6,1" CornerRadius="4" Background="{StaticResource HaftBg2Brush}" VerticalAlignment="Center">
+                        <TextBlock x:Name="VersionText" Text="1.0.0" FontSize="11" Foreground="{StaticResource HaftTextDimBrush}" />
+                    </Border>
+                    <TextBlock x:Name="DocTitleText" Text="" FontSize="13" Margin="10,0,0,0" VerticalAlignment="Center"
+                               Foreground="{StaticResource HaftTextDimBrush}" TextTrimming="CharacterEllipsis" MaxWidth="420" />
+                </StackPanel>
+            </Grid>
+
+            <!-- ============ PASEK POLECEŃ ============ -->
+            <Border Grid.Row="1" Background="{StaticResource HaftBg1Brush}" BorderBrush="{StaticResource HaftLineBrush}" BorderThickness="0,1,0,1" Padding="10,6">
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" Spacing="2">
+                        <Button Style="{StaticResource BarButtonStyle}" Click="OpenImage_Click" ToolTipService.ToolTip="Otwórz obrazek (Ctrl+O)">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xEB9F;" FontSize="15" />
+                                <TextBlock Text="Obrazek" />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource BarButtonStyle}" Click="Paste_Click" ToolTipService.ToolTip="Wklej obrazek ze schowka (Ctrl+V)">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE77F;" FontSize="15" />
+                                <TextBlock Text="Wklej" />
+                            </StackPanel>
+                        </Button>
+                        <Rectangle Width="1" Margin="6,6" Fill="{StaticResource HaftLineBrush}" />
+                        <Button Style="{StaticResource BarButtonStyle}" Click="OpenProject_Click" ToolTipService.ToolTip="Otwórz projekt .wyszycie (Ctrl+Shift+O)">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE838;" FontSize="15" />
+                                <TextBlock Text="Otwórz" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="SaveButton" Style="{StaticResource BarButtonStyle}" Click="Save_Click" ToolTipService.ToolTip="Zapisz projekt (Ctrl+S) · Zapisz jako (Ctrl+Shift+S)">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE74E;" FontSize="15" />
+                                <TextBlock Text="Zapisz" />
+                            </StackPanel>
+                        </Button>
+                        <Rectangle Width="1" Margin="6,6" Fill="{StaticResource HaftLineBrush}" />
+                        <Button x:Name="UndoButton" Style="{StaticResource BarButtonStyle}" Click="Undo_Click" ToolTipService.ToolTip="Cofnij (Ctrl+Z)">
+                            <FontIcon Glyph="&#xE7A7;" FontSize="15" />
+                        </Button>
+                        <Button x:Name="RedoButton" Style="{StaticResource BarButtonStyle}" Click="Redo_Click" ToolTipService.ToolTip="Ponów (Ctrl+Y)">
+                            <FontIcon Glyph="&#xE7A6;" FontSize="15" />
+                        </Button>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                        <Button Style="{StaticResource BarButtonStyle}" Click="MyThreads_Click" ToolTipService.ToolTip="Nici, które masz w pudełku — wzór może używać tylko ich">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Viewbox Width="16" Height="16">
+                                    <PathIcon Data="M12,2 C17.5,2 22,6.5 22,12 C22,17.5 17.5,22 12,22 C6.5,22 2,17.5 2,12 C2,6.5 6.5,2 12,2 Z M12,5 C8.1,5 5,8.1 5,12 C5,15.9 8.1,19 12,19 C15.9,19 19,15.9 19,12 C19,8.1 15.9,5 12,5 Z M12,8.5 C13.9,8.5 15.5,10.1 15.5,12 C15.5,13.9 13.9,15.5 12,15.5 C10.1,15.5 8.5,13.9 8.5,12 C8.5,10.1 10.1,8.5 12,8.5 Z" />
+                                </Viewbox>
+                                <TextBlock Text="Moje nici" />
+                            </StackPanel>
+                        </Button>
+                        <DropDownButton x:Name="ExportButton" Padding="10,6" MinHeight="34" CornerRadius="6" ToolTipService.ToolTip="Zapisz wzór jako plik">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE896;" FontSize="15" />
+                                <TextBlock Text="Eksport" />
+                            </StackPanel>
+                            <DropDownButton.Flyout>
+                                <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                    <MenuFlyoutItem Text="PDF do druku (kartki 1:1 + legenda)…" Click="ExportPdf_Click">
+                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEA90;" /></MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Text="PNG — wzór do odrysowania…" Click="ExportPatternPng_Click">
+                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B9;" /></MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Text="PNG — podgląd w kolorach nici…" Click="ExportColorsPng_Click">
+                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE790;" /></MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem Text="SVG — warstwy kolorów (Inkscape, Ink/Stitch)…" Click="ExportSvg_Click">
+                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE81E;" /></MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                </MenuFlyout>
+                            </DropDownButton.Flyout>
+                        </DropDownButton>
+                        <Button x:Name="PrintButton" Style="{StaticResource AccentButtonStyle}" Padding="14,6" MinHeight="34" CornerRadius="6" Click="Print_Click" ToolTipService.ToolTip="Drukuj wzór w skali 1:1 (Ctrl+P)">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE749;" FontSize="15" />
+                                <TextBlock Text="Drukuj" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- ============ OBSZAR ROBOCZY ============ -->
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="350" />
+                </Grid.ColumnDefinitions>
+
+                <!-- płótno -->
+                <Grid x:Name="CanvasArea">
+                    <canvas:PatternView x:Name="View" />
+
+                    <!-- narzędzia -->
+                    <Border x:Name="ToolRail" Style="{StaticResource FloatingCardStyle}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="14,60,0,0">
+                        <StackPanel Spacing="2">
+                            <ToggleButton x:Name="ToolSelect" Style="{StaticResource ToolToggleStyle}" Click="Tool_Click" Tag="Select" IsChecked="True"
+                                          ToolTipService.ToolTip="Zaznaczanie (V) — kliknij obszar, by zobaczyć jego kolor">
+                                <PathIcon Data="M6,2.5 L6,19.5 L10.3,15.4 L13.4,21.8 L16.2,20.5 L13.2,14.2 L19,14.2 Z" />
+                            </ToggleButton>
+                            <ToggleButton x:Name="ToolFill" Style="{StaticResource ToolToggleStyle}" Click="Tool_Click" Tag="Fill"
+                                          ToolTipService.ToolTip="Wiaderko (G) — kliknij obszar, by nadać mu wybrany kolor">
+                                <PathIcon Data="M10.6,2.3 L12,3.7 L10.4,5.3 L17.5,12.4 L10.6,19.3 C9.8,20.1 8.5,20.1 7.7,19.3 L2.9,14.5 C2.1,13.7 2.1,12.4 2.9,11.6 L9.2,5.3 L9.2,3.7 Z M10.4,7.6 L5,13 L15.8,13 L16.2,12.4 Z M19.5,13.5 C19.5,13.5 22,16.6 22,18.2 C22,19.6 20.9,20.7 19.5,20.7 C18.1,20.7 17,19.6 17,18.2 C17,16.6 19.5,13.5 19.5,13.5 Z" />
+                            </ToggleButton>
+                            <ToggleButton x:Name="ToolBrush" Style="{StaticResource ToolToggleStyle}" Click="Tool_Click" Tag="Brush"
+                                          ToolTipService.ToolTip="Pędzel (B) — domaluj albo zamaluj fragment · [ ] zmienia rozmiar">
+                                <PathIcon Data="M20.9,2.6 C21.6,3.3 21.6,4.4 20.9,5.1 L13.4,12.6 L11.3,10.5 L18.8,3 C19.5,2.3 20.4,2 20.9,2.6 Z M9.4,11.6 C11.4,11.6 13,13.2 13,15.2 C13,18.6 10.3,21.4 6.9,21.4 C5,21.4 3.2,20.5 2,19 C3.5,18.6 5.8,17.7 5.8,15.2 C5.8,13.2 7.4,11.6 9.4,11.6 Z" />
+                            </ToggleButton>
+                            <ToggleButton x:Name="ToolPicker" Style="{StaticResource ToolToggleStyle}" Click="Tool_Click" Tag="Picker"
+                                          ToolTipService.ToolTip="Pipeta (I) — weź kolor z wzoru · prawy przycisk myszy działa tak samo w każdym narzędziu">
+                                <PathIcon Data="M19.6,4.4 C20.6,5.4 20.6,7 19.6,8 L16.9,10.7 L18.3,12.1 L16.9,13.5 L15.5,12.1 L7.6,20 L4,20 L4,16.4 L11.9,8.5 L10.5,7.1 L11.9,5.7 L13.3,7.1 L16,4.4 C17,3.4 18.6,3.4 19.6,4.4 Z M13.3,9.9 L6,17.2 L6,18 L6.8,18 L14.1,10.7 Z" />
+                            </ToggleButton>
+                            <Rectangle Height="1" Margin="6,4" Fill="{StaticResource HaftLineBrush}" />
+                            <!-- aktualny kolor pędzla -->
+                            <Border x:Name="PaintSwatch" Width="30" Height="30" CornerRadius="15" Margin="5,2,5,4" BorderThickness="2"
+                                    BorderBrush="{StaticResource HaftTextBrush}" Background="White" ToolTipService.ToolTip="Kolor pędzla i wiaderka — wybierz na liście nici">
+                                <TextBlock x:Name="PaintNumber" Text="1" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- rozmiar pędzla -->
+                    <Border x:Name="BrushPanel" Style="{StaticResource FloatingCardStyle}" HorizontalAlignment="Left" VerticalAlignment="Top"
+                            Margin="66,166,0,0" Padding="12,6" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="Pędzel" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource HaftTextDimBrush}" />
+                            <Slider x:Name="BrushSlider" Width="150" Minimum="1" Maximum="60" Value="6" StepFrequency="0.5" ValueChanged="BrushSlider_ValueChanged" VerticalAlignment="Center" />
+                            <TextBlock x:Name="BrushSizeText" Text="6 px" Width="80" VerticalAlignment="Center" FontSize="12" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- przełącznik widoku -->
+                    <Border x:Name="ViewBar" Style="{StaticResource FloatingCardStyle}" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,12,0,0">
+                        <StackPanel Orientation="Horizontal" Spacing="2">
+                            <ToggleButton x:Name="ViewOriginal" Style="{StaticResource ViewToggleStyle}" Content="Oryginał" Tag="Original" Click="ViewMode_Click" ToolTipService.ToolTip="Oryginalny obrazek (1)" />
+                            <ToggleButton x:Name="ViewCompare" Style="{StaticResource ViewToggleStyle}" Content="Porównaj" Tag="Compare" Click="ViewMode_Click" ToolTipService.ToolTip="Przed i po — przeciągnij suwak na obrazku (2)" />
+                            <ToggleButton x:Name="ViewColors" Style="{StaticResource ViewToggleStyle}" Content="Kolory" Tag="Colors" Click="ViewMode_Click" IsChecked="True" ToolTipService.ToolTip="Uproszczony obrazek w kolorach nici (3)" />
+                            <ToggleButton x:Name="ViewPattern" Style="{StaticResource ViewToggleStyle}" Content="Wzór" Tag="Pattern" Click="ViewMode_Click" ToolTipService.ToolTip="Tak będzie wyglądał wydruk: kontury i numery nici (4)" />
+                            <ToggleButton x:Name="ViewOverlay" Style="{StaticResource ViewToggleStyle}" Content="Kontury" Tag="Overlay" Click="ViewMode_Click" ToolTipService.ToolTip="Kontury na oryginale — widać, co zostało uproszczone (5)" />
+                            <Rectangle Width="1" Margin="4,6" Fill="{StaticResource HaftLineBrush}" />
+                            <ToggleButton x:Name="OutlineToggle" Style="{StaticResource ViewToggleStyle}" Padding="8,5" Click="OutlineToggle_Click" ToolTipService.ToolTip="Pokaż kontury w widoku kolorów">
+                                <Viewbox Width="15" Height="15">
+                                    <PathIcon Data="M3,12 C3,7 7,3 12,3 C17,3 21,7 21,12 C21,17 17,21 12,21 C7,21 3,17 3,12 Z M5.2,12 C5.2,15.8 8.2,18.8 12,18.8 C15.8,18.8 18.8,15.8 18.8,12 C18.8,8.2 15.8,5.2 12,5.2 C8.2,5.2 5.2,8.2 5.2,12 Z" />
+                                </Viewbox>
+                            </ToggleButton>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- praca w tle -->
+                    <Border x:Name="BusyCard" Style="{StaticResource FloatingCardStyle}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,14,14,0" Padding="12,7" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <ProgressRing IsActive="True" Width="16" Height="16" />
+                            <TextBlock x:Name="BusyText" Text="Upraszczam…" FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- powiększenie -->
+                    <Border x:Name="ZoomBar" Style="{StaticResource FloatingCardStyle}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,14,14">
+                        <StackPanel Orientation="Horizontal" Spacing="2">
+                            <Button Style="{StaticResource BarButtonStyle}" Padding="8,4" Click="ZoomOut_Click" ToolTipService.ToolTip="Oddal (−)">
+                                <FontIcon Glyph="&#xE71F;" FontSize="13" />
+                            </Button>
+                            <Button x:Name="ZoomText" Style="{StaticResource BarButtonStyle}" Padding="6,4" MinWidth="60" Content="100%" Click="ZoomActual_Click" ToolTipService.ToolTip="Piksel w piksel" />
+                            <Button Style="{StaticResource BarButtonStyle}" Padding="8,4" Click="ZoomIn_Click" ToolTipService.ToolTip="Przybliż (+)">
+                                <FontIcon Glyph="&#xE8A3;" FontSize="13" />
+                            </Button>
+                            <Button Style="{StaticResource BarButtonStyle}" Padding="8,4" Click="ZoomFit_Click" ToolTipService.ToolTip="Dopasuj do okna (F)">
+                                <FontIcon Glyph="&#xE9A6;" FontSize="13" />
+                            </Button>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ekran powitalny -->
+                    <Grid x:Name="EmptyState" Background="{StaticResource HaftBg0Brush}">
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="18" MaxWidth="560">
+                            <!-- tamborek z płótnem i przeszyciem -->
+                            <Grid Width="190" Height="190" HorizontalAlignment="Center">
+                                <Ellipse Fill="{StaticResource HaftWoodBrush}" />
+                                <Ellipse Margin="9" Fill="#8E6A3E" />
+                                <Ellipse Margin="13" Fill="{StaticResource HaftLinenBrush}" />
+                                <Ellipse Margin="30" Stroke="{StaticResource HaftThreadBrush}" StrokeThickness="3" StrokeDashArray="3,2" />
+                                <Path Data="M95,62 C83,48 60,56 62,76 C64,94 95,110 95,124 C95,110 126,94 128,76 C130,56 107,48 95,62 Z"
+                                      Fill="#33E2574C" Stroke="{StaticResource HaftThreadBrush}" StrokeThickness="2.5" StrokeDashArray="2.5,1.6" />
+                                <Rectangle Width="10" Height="22" Fill="{StaticResource HaftWoodBrush}" VerticalAlignment="Top" Margin="0,-6,0,0" RadiusX="3" RadiusY="3" />
+                                <!-- igła z nitką -->
+                                <Path Data="M150,30 L118,98" Stroke="#C9CDD2" StrokeThickness="3" StrokeEndLineCap="Triangle" />
+                                <Path Data="M150,30 C170,40 168,70 150,80 C135,88 128,104 118,98" Stroke="{StaticResource HaftThreadBrush}" StrokeThickness="1.5" />
+                            </Grid>
+                            <TextBlock Text="Zrób wzór do wyszycia" FontSize="26" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                            <TextBlock Style="{StaticResource HintTextStyle}" FontSize="14" TextAlignment="Center" HorizontalAlignment="Center"
+                                       Text="Wrzuć dowolny obrazek — Wyszyciuszek uprości go do kilku kolorów nici i gładkich konturów, które wydrukujesz w skali 1:1, przeniesiesz na tkaninę i wyszyjesz z wolnej ręki." />
+                            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+                                <Button Style="{StaticResource AccentButtonStyle}" Padding="18,9" Click="OpenImage_Click">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xEB9F;" FontSize="15" />
+                                        <TextBlock Text="Wybierz obrazek…" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Padding="18,9" Click="Paste_Click">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xE77F;" FontSize="15" />
+                                        <TextBlock Text="Wklej ze schowka" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Padding="18,9" Click="OpenProject_Click">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xE838;" FontSize="15" />
+                                        <TextBlock Text="Otwórz projekt…" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                            <!-- strefa upuszczania obszyta „ściegiem” -->
+                            <Grid Height="64">
+                                <Rectangle RadiusX="10" RadiusY="10" Stroke="{StaticResource HaftLineBrush}" StrokeThickness="2" StrokeDashArray="4,3" />
+                                <TextBlock Style="{StaticResource HintTextStyle}" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                                           Text="…albo przeciągnij tu plik · PNG, JPG, BMP, GIF, TIFF, WEBP · projekty .wyszycie" />
+                            </Grid>
+                            <StackPanel x:Name="RecentPanel" Spacing="4" HorizontalAlignment="Center" />
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- komunikaty -->
+                    <InfoBar x:Name="UpdateBar" IsOpen="False" Severity="Informational" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,58,0,0" MaxWidth="640" />
+                    <InfoBar x:Name="Toast" IsOpen="False" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,18" MaxWidth="640" />
+                </Grid>
+
+                <!-- ============ PANEL BOCZNY ============ -->
+                <Border Grid.Column="1" Background="{StaticResource HaftBg1Brush}" BorderBrush="{StaticResource HaftLineBrush}" BorderThickness="1,0,0,0">
+                    <ScrollViewer x:Name="SidePanel" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
+                        <StackPanel Padding="14,14,12,20" Spacing="14">
+
+                            <!-- UPRASZCZANIE -->
+                            <Border Style="{StaticResource PanelCardStyle}">
+                                <StackPanel Spacing="6">
+                                    <Grid>
+                                        <TextBlock Text="UPRASZCZANIE" Style="{StaticResource SectionTitleStyle}" VerticalAlignment="Center" />
+                                        <Button HorizontalAlignment="Right" Style="{StaticResource BarButtonStyle}" Padding="8,3" MinHeight="26" Click="Reroll_Click"
+                                                ToolTipService.ToolTip="Dobierz kolory jeszcze raz trochę inaczej">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <FontIcon Glyph="&#xE72C;" FontSize="12" />
+                                                <TextBlock Text="Inaczej" FontSize="12" />
+                                            </StackPanel>
+                                        </Button>
+                                    </Grid>
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="34" />
+                                        </Grid.ColumnDefinitions>
+                                        <Slider x:Name="ColorsSlider" Header="Liczba nici (kolorów)" Style="{StaticResource PanelSliderStyle}" Minimum="2" Maximum="24" Value="6" ValueChanged="SimplifySlider_ValueChanged" />
+                                        <TextBlock x:Name="ColorsValue" Grid.Column="1" Text="6" VerticalAlignment="Bottom" Margin="0,0,0,8" HorizontalAlignment="Right" FontWeight="SemiBold" />
+                                    </Grid>
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="34" />
+                                        </Grid.ColumnDefinitions>
+                                        <Slider x:Name="DetailSlider" Header="Szczegóły" Style="{StaticResource PanelSliderStyle}" Minimum="1" Maximum="10" Value="5" ValueChanged="SimplifySlider_ValueChanged"
+                                                ToolTipService.ToolTip="Mało — tylko duże plamy, łatwe do wyszycia. Dużo — drobne detale." />
+                                        <TextBlock x:Name="DetailValue" Grid.Column="1" Text="5" VerticalAlignment="Bottom" Margin="0,0,0,8" HorizontalAlignment="Right" FontWeight="SemiBold" />
+                                    </Grid>
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="34" />
+                                        </Grid.ColumnDefinitions>
+                                        <Slider x:Name="SmoothingSlider" Header="Wygładzenie plam" Style="{StaticResource PanelSliderStyle}" Minimum="0" Maximum="10" Value="5" ValueChanged="SimplifySlider_ValueChanged"
+                                                ToolTipService.ToolTip="Usuwa fakturę i szum zdjęcia, wyrównuje poszarpane brzegi plam" />
+                                        <TextBlock x:Name="SmoothingValue" Grid.Column="1" Text="5" VerticalAlignment="Bottom" Margin="0,0,0,8" HorizontalAlignment="Right" FontWeight="SemiBold" />
+                                    </Grid>
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="34" />
+                                        </Grid.ColumnDefinitions>
+                                        <Slider x:Name="LinesSlider" Header="Gładkość linii" Style="{StaticResource PanelSliderStyle}" Minimum="0" Maximum="10" Value="5" ValueChanged="LinesSlider_ValueChanged"
+                                                ToolTipService.ToolTip="Jak mocno zaokrąglać kontury — gładkie łuki łatwiej prowadzić pod stopką" />
+                                        <TextBlock x:Name="LinesValue" Grid.Column="1" Text="5" VerticalAlignment="Bottom" Margin="0,0,0,8" HorizontalAlignment="Right" FontWeight="SemiBold" />
+                                    </Grid>
+                                    <Grid ColumnSpacing="8" Margin="0,4,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <ComboBox x:Name="SourceCombo" Header="Kolory" HorizontalAlignment="Stretch" SelectionChanged="SourceCombo_SelectionChanged">
+                                            <ComboBoxItem Content="Z obrazka" />
+                                            <ComboBoxItem Content="Z moich nici" />
+                                        </ComboBox>
+                                        <ComboBox x:Name="QualityCombo" Grid.Column="1" Header="Dokładność" HorizontalAlignment="Stretch" SelectionChanged="QualityCombo_SelectionChanged">
+                                            <ComboBoxItem Content="Szybko" />
+                                            <ComboBoxItem Content="Normalnie" />
+                                            <ComboBoxItem Content="Dokładnie" />
+                                            <ComboBoxItem Content="Bardzo dokładnie" />
+                                        </ComboBox>
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">
+                                        <Button Click="Cleanup_Click" ToolTipService.ToolTip="Wtapia drobne plamki (także te domalowane) w sąsiednie obszary">
+                                            <TextBlock Text="Usuń drobiazgi" FontSize="12" />
+                                        </Button>
+                                        <Button Click="SmoothEdges_Click" ToolTipService.ToolTip="Wyrównuje poszarpane brzegi po ręcznych poprawkach">
+                                            <TextBlock Text="Wyrównaj brzegi" FontSize="12" />
+                                        </Button>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- NICI -->
+                            <Border Style="{StaticResource PanelCardStyle}">
+                                <StackPanel Spacing="8">
+                                    <Grid>
+                                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <TextBlock Text="NICI" Style="{StaticResource SectionTitleStyle}" />
+                                            <TextBlock x:Name="PaletteSummary" Text="" FontSize="11" Foreground="{StaticResource HaftTextDimBrush}" />
+                                        </StackPanel>
+                                        <DropDownButton HorizontalAlignment="Right" Padding="8,3" MinHeight="26" ToolTipService.ToolTip="Kolejność i porządki">
+                                            <FontIcon Glyph="&#xE8CB;" FontSize="12" />
+                                            <DropDownButton.Flyout>
+                                                <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                                    <MenuFlyoutItem Text="Kolejność: od największych plam" Click="SortByArea_Click" />
+                                                    <MenuFlyoutItem Text="Kolejność: od najjaśniejszych" Click="SortByLight_Click" />
+                                                    <MenuFlyoutSeparator />
+                                                    <MenuFlyoutItem Text="Zamień kolory na moje nici" Click="MatchThreads_Click" />
+                                                    <MenuFlyoutItem Text="Usuń nieużywane kolory" Click="RemoveUnused_Click" />
+                                                </MenuFlyout>
+                                            </DropDownButton.Flyout>
+                                        </DropDownButton>
+                                    </Grid>
+                                    <TextBlock Style="{StaticResource HintTextStyle}" FontSize="11"
+                                               Text="Numer = kolejność szycia. Kliknij nić, by nią malować; próbka zmienia kolor." />
+                                    <StackPanel x:Name="PaletteList" Spacing="4" />
+                                    <Button HorizontalAlignment="Stretch" Click="AddColor_Click" Margin="0,4,0,0">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE710;" FontSize="12" />
+                                            <TextBlock Text="Dodaj kolor" FontSize="12" />
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- WYDRUK -->
+                            <Border Style="{StaticResource PanelCardStyle}">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="WYDRUK" Style="{StaticResource SectionTitleStyle}" />
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <NumberBox x:Name="WidthBox" Header="Szerokość (cm)" Minimum="2" Maximum="200" SmallChange="0.5" LargeChange="5"
+                                                   SpinButtonPlacementMode="Compact" ValueChanged="WidthBox_ValueChanged" />
+                                        <NumberBox x:Name="HeightBox" Grid.Column="1" Header="Wysokość (cm)" Minimum="2" Maximum="200" SmallChange="0.5" LargeChange="5"
+                                                   SpinButtonPlacementMode="Compact" ValueChanged="HeightBox_ValueChanged" />
+                                    </Grid>
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <ComboBox x:Name="HoopCombo" Header="Tamborek" HorizontalAlignment="Stretch" SelectionChanged="HoopCombo_SelectionChanged" />
+                                        <Button x:Name="FitHoopButton" Grid.Column="1" VerticalAlignment="Bottom" Click="FitHoop_Click" ToolTipService.ToolTip="Dopasuj rozmiar wzoru do tamborka (z zapasem 1 cm)">
+                                            <FontIcon Glyph="&#xE9A6;" FontSize="13" />
+                                        </Button>
+                                    </Grid>
+                                    <ComboBox x:Name="PaperCombo" Header="Papier" HorizontalAlignment="Stretch" SelectionChanged="PaperCombo_SelectionChanged" />
+                                    <ToggleSwitch x:Name="MirrorToggle" Header="Lustrzane odbicie" OffContent="Nie" OnContent="Tak — do pisaka termotransferowego" Toggled="PrintToggle_Toggled" />
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox x:Name="NumbersCheck" Content="Numery nici" Checked="PrintCheck_Changed" Unchecked="PrintCheck_Changed" />
+                                        <CheckBox x:Name="LegendCheck" Grid.Column="1" Content="Legenda" Checked="PrintCheck_Changed" Unchecked="PrintCheck_Changed" />
+                                    </Grid>
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox x:Name="CenterMarksCheck" Content="Znaczniki środka" Checked="PrintCheck_Changed" Unchecked="PrintCheck_Changed" />
+                                        <CheckBox x:Name="FrameCheck" Grid.Column="1" Content="Ramka" Checked="PrintCheck_Changed" Unchecked="PrintCheck_Changed" />
+                                    </Grid>
+                                    <Slider x:Name="TintSlider" Header="Podbarwienie kolorem nici" Minimum="0" Maximum="100" StepFrequency="5" Value="25" ValueChanged="PrintSlider_ValueChanged" />
+                                    <Slider x:Name="LineWidthSlider" Header="Grubość linii (mm)" Minimum="0.1" Maximum="1.5" StepFrequency="0.05" Value="0.4" ValueChanged="PrintSlider_ValueChanged" />
+                                    <Border Background="{StaticResource HaftBg1Brush}" CornerRadius="6" Padding="10,8">
+                                        <TextBlock x:Name="PrintInfo" Style="{StaticResource HintTextStyle}" Text="" />
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+            </Grid>
+
+            <!-- ============ PASEK STANU ============ -->
+            <Grid Grid.Row="3" Background="{StaticResource HaftBg1Brush}" BorderBrush="{StaticResource HaftLineBrush}" BorderThickness="0,1,0,0" Padding="12,0" ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="HintText" FontSize="12" VerticalAlignment="Center" Foreground="{StaticResource HaftTextDimBrush}" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="StatsText" Grid.Column="1" FontSize="12" VerticalAlignment="Center" Foreground="{StaticResource HaftTextDimBrush}" />
+                <TextBlock x:Name="SizeText" Grid.Column="2" FontSize="12" VerticalAlignment="Center" Foreground="{StaticResource HaftTextBrush}" />
+            </Grid>
+        </Grid>
+    </UserControl>
+</Window>

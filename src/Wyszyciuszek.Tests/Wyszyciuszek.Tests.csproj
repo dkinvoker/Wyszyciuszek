@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Testy logiki Wyszyciuszka (bez okna, WinUI i Win2D — działają w kilka sekund):
+      dotnet test src/Wyszyciuszek.Tests
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>Wyszyciuszek.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Wyszyciuszek.Core\Wyszyciuszek.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="System.Numerics" />
+    <Using Include="Wyszyciuszek.Core.Imaging" />
+    <Using Include="Wyszyciuszek.Core.Pattern" />
+    <Using Include="Wyszyciuszek.Core.Vector" />
+    <Using Include="Wyszyciuszek.Core.Output" />
+  </ItemGroup>
+
+</Project>

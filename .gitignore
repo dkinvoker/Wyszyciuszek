@@ -1,0 +1,58 @@
+## .NET (na podstawie https://github.com/github/gitignore/blob/main/Dotnet.gitignore)
+
+# Wyniki budowania
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# .NET
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Pakiety NuGet
+*.nupkg
+*.snupkg
+
+# Logi MSBuild
+*.binlog
+
+# Wyniki testów
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+CodeCoverage/
+*.VisualState.xml
+TestResult.xml
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+*.user
+*.suo
+*.DotSettings.user
+.vscode/*
+!.vscode/extensions.json
+
+# Inne
+~$*
+*~
+Thumbs.db
+desktop.ini
+
+# Wyszyciuszek - gotowe paczki z publish.ps1
+publish/
+dist/
+
+# logi budowania
+*.log
