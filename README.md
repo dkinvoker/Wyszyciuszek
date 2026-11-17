@@ -123,6 +123,10 @@ tools/make-icon.ps1       ikona aplikacji
 publish.ps1               budowanie Native AOT i jednego pliku exe
 ```
 
+## Pomysły na rozwój
+
+Co można dodać w kolejnych wersjach: [Developement.md](Developement.md).
+
 ## Licencja
 
 MIT — zobacz [LICENSE](LICENSE).
