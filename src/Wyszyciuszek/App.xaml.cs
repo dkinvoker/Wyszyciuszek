@@ -36,7 +36,7 @@ public partial class App : Application
     /// <summary>
     /// Tryb bez okna (skrypty, testy):
     ///   Wyszyciuszek.exe obraz.jpg|projekt.wyszycie [--colors 6] [--detail 5] [--smooth 5] [--lines 5] [--quality 800]
-    ///       [--my-threads] [--seed 1] [--width-cm 15] [--paper A4] [--hoop r15] [--mirror] [--no-numbers] [--no-legend] [--tint 0.25]
+    ///       [--my-threads] [--background] [--seed 1] [--width-cm 15] [--paper A4] [--hoop r15] [--mirror] [--no-numbers] [--no-arrows] [--no-legend] [--tint 0.25]
     ///       [--export-pdf wzor.pdf] [--export-png wzor.png] [--export-colors-png kolory.png] [--export-svg wzor.svg]
     ///       [--export-project wzor.wyszycie] [--dpi 300]
     /// Błąd: kod wyjścia 1 i opis w %TEMP%\Wyszyciuszek-cli-error.txt.
@@ -55,7 +55,7 @@ public partial class App : Application
             int? Int(string name) => int.TryParse(Arg(name), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
             double? Num(string name) => double.TryParse(Arg(name), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : null;
 
-            string[] flags = ["--mirror", "--no-numbers", "--no-legend", "--my-threads"];
+            string[] flags = ["--mirror", "--no-numbers", "--no-legend", "--my-threads", "--background", "--no-arrows"];
             string? input = null;
             for (int i = 1; i < cli.Length; i++)
             {
@@ -81,6 +81,7 @@ public partial class App : Application
                     Colors = Int("--colors") ?? 6, Detail = Int("--detail") ?? 5, Smoothing = Int("--smooth") ?? 5,
                     LineSmoothness = Int("--lines") ?? 5, WorkingSize = Int("--quality") ?? 800, Seed = Int("--seed") ?? 1,
                     Source = Flag("--my-threads") ? PaletteSource.MyThreads : PaletteSource.Automatic,
+                    BackgroundAsFabric = Flag("--background"),
                 };
                 var working = Simplifier.PrepareWorkingImage(image.Pixels, options);
                 var result = Simplifier.Run(working, options, AppInfo.Settings.Threads);
@@ -99,6 +100,7 @@ public partial class App : Application
             if (Flag("--mirror")) p.Mirror = true;
             if (Flag("--no-numbers")) p.Numbers = false;
             if (Flag("--no-legend")) p.Legend = false;
+            if (Flag("--no-arrows")) p.StitchArrows = false;
 
             var analysis = PatternAnalysis.Compute(doc.Labels, doc.Width, doc.Height, doc.Palette.Count, doc.Options.LineSmoothness);
             var composer = new PatternComposer(doc, analysis);

@@ -3,30 +3,36 @@
 Lista rzeczy, których jeszcze nie ma. Gotowe funkcje opisuje [CHANGELOG.md](CHANGELOG.md).
 Orientacyjna ilość pracy: **[S]** mała, **[M]** średnia, **[L]** duża.
 
+## ✅ Zrobione w 1.1
+
+Wykrywanie tła (jako opcja), kierunek ściegu, linie detali, tryb projektora, zużycie nici i czas szycia.
+Szczegóły w [CHANGELOG.md](CHANGELOG.md).
+
 ## ⭐ Na początek (największy zysk za najmniej pracy)
 
-1. **Wykrywanie tła [S]** — kolor, który dominuje na krawędziach obrazka, od razu oznaczony jako „tkanina”.
-2. **Kierunek ściegu na wzorze [M]** — strzałki w każdym obszarze; najbardziej brakująca wskazówka przy szyciu.
-3. **Linie detali [M]** — dorysowanie oczu, wąsów czy napisu jako samej linii do przeszycia, bez nowego obszaru.
-4. **Tryb projektora [M]** — wzór na pełnym ekranie w skali 1:1, do odrysowania prosto na tkaninie.
-5. **Zużycie nici i czas szycia [S]** — z powierzchni każdego koloru, w legendzie.
+1. **Za małe na wypełnienie [S]** — obszary węższe niż ok. 3 mm na czerwono, z przyciskiem „zamień na linię detalu”.
+2. **Linie do kalkowania [S]** — przerywana albo szara linia i wydruk bez numerów, pod pisak znikający i stabilizator.
+3. **Kalibracja drukarki [S]** — wydruk testowy z linijkami i poprawka skali, jak w projektorze.
+4. **Autozapis i przywracanie po awarii [S]** — żadna praca nie przepadnie.
+5. **Mądrzejsza kolejność szycia [M]** — najpierw to, co „pod spodem”, przy jak najmniejszej liczbie zmian nici.
 
 ## 🧵 Upraszczanie
 
-- **Wykrywanie tła [S]:** kolor, który zajmuje większość krawędzi obrazka, jest od razu „tkaniną” (bez numeru, bez szycia).
-  Dla zdjęć z białym albo jednolitym tłem oszczędza to kilka kliknięć przy każdym wzorze.
 - **Wycinanie obiektu z tła [M]:** zaznaczasz z grubsza kota na zdjęciu, a reszta staje się tkaniną. Wystarczy
   algorytm typu GrabCut na obrazie roboczym — bez sieci neuronowych i bez internetu.
 - **Pędzel „tu ważne” [M]:** malujesz na oryginale twarz czy oczy, a tam program zostawia więcej szczegółów
   (mniejsza najmniejsza plama i cieńsze paski). Reszta upraszcza się mocniej.
 - **Tryb „szkic nicią” [M]:** zamiast plam same linie — kontury i kreski cieniowania z wykrywania krawędzi (XDoG).
-  To popularny styl haftu z wolnej ręki: czarna nić na jasnej tkaninie, jak rysunek ołówkiem.
+  To popularny styl haftu z wolnej ręki: czarna nić na jasnej tkaninie, jak rysunek ołówkiem. Wynik od razu
+  trafiłby do linii detali, więc można go poprawiać jak każdą linię.
 - **Tryb „jedna linia” [L]:** cały obrazek jako jedna ciągła ścieżka (gęstsza tam, gdzie ciemniej) — szyje się
   bez obcinania nici. Rozmieszczenie punktów (stippling) i trasa jak w problemie komiwojażera.
 - **Cieniowanie zamiast twardych granic [M]:** w gradientach (niebo, policzki) program proponuje 2–3 odcienie
   w pasach o zadanej szerokości i rysuje linie przejścia, zamiast poszarpanej granicy.
 - **Kontury przyklejone do krawędzi oryginału [M]:** po wygładzeniu linia lekko „przyciąga się” do najbliższej
   wyraźnej krawędzi zdjęcia. Mniej falowania w gradientach, wierniejsze kształty.
+- **Kilka kolorów tła [S]:** opcja „tło to tkanina” rozpoznaje dziś jeden dominujący kolor brzegów. Zdjęcie na
+  dwukolorowym tle (ściana i podłoga) mogłoby oznaczyć oba naraz.
 - **Miniatury przy suwakach [S]:** po najechaniu na suwak małe podglądy dla kilku wartości obok siebie.
   Nie trzeba przesuwać i czekać, żeby porównać.
 - **Przyspieszenie dla dużych obrazów [M]:** kolory liczone na zmniejszonej kopii, a granice doprecyzowane w pełnej
@@ -34,45 +40,46 @@ Orientacyjna ilość pracy: **[S]** mała, **[M]** średnia, **[L]** duża.
 
 ## 🪡 Wskazówki do szycia
 
-- **Kierunek ściegu [M]:** w każdym obszarze strzałka albo kilka równoległych kresek pokazujących kierunek
-  wypełnienia (wzdłuż najdłuższej osi plamy albo wzdłuż „włosa” na zdjęciu). Na wzorze i w podglądzie.
-  Można ją obrócić myszą.
+- **Kierunek wzdłuż faktury zdjęcia [M]:** dziś automatyczny kierunek idzie wzdłuż kształtu plamy. Dla sierści,
+  włosów czy piór lepszy byłby kierunek „włosa” odczytany z oryginału (tensor struktury), także zmienny wewnątrz
+  jednej plamy — kilka strzałek zamiast jednej.
 - **Mądrzejsza kolejność szycia [M]:** najpierw to, co jest „pod spodem” (tło, duże plamy), potem to, co na wierzchu,
   a przy tym jak najmniej zmian nici. Podpowiedź „ta nić ma 7 obszarów, przeskakuj między nimi w tej kolejności”.
-- **Zużycie nici i czas [S]:** z powierzchni każdego koloru i gęstości wypełnienia — orientacyjne metry nici,
-  liczba szpulek i czas szycia w legendzie. Do tego ostrzeżenie „ta nić skończy się w połowie” dla nici z pudełka
-  z podaną długością.
+- **Nić na szpulce [S]:** w „Moich niciach” ilość nici na szpulce; legenda ostrzega „ta nić skończy się w połowie”
+  i podaje liczbę szpulek. Gęstość wypełnienia do wyboru (gęsto / średnio / szkicowo) zamiast jednego założenia.
 - **Za małe na wypełnienie [S]:** zaznaczenie na czerwono obszarów, które w rzeczywistym rozmiarze są węższe niż
-  ok. 3 mm (trudne do wypełnienia ściegiem) — z propozycją „połącz z sąsiadem” albo „zamień na linię”.
+  ok. 3 mm (trudne do wypełnienia ściegiem) — z propozycją „połącz z sąsiadem” albo „zamień na linię detalu”.
 - **Podpowiedź flizeliny [S]:** przy dużych, gęsto wypełnionych obszarach informacja o stabilizatorze i tamborku.
-- **Realistyczny podgląd haftu [L]:** obszary narysowane „nitkami” — tekstura ściegu w kierunku z poprzedniego punktu,
-  połysk, cień. Widać, jak wzór będzie wyglądał wyszyty, zanim się zacznie.
+- **Realistyczny podgląd haftu [L]:** obszary narysowane „nitkami” w kierunku ze strzałek — tekstura ściegu, połysk,
+  cień. Widać, jak wzór będzie wyglądał wyszyty, zanim się zacznie.
 
 ## ✏️ Projektowanie
 
-- **Linie detali [M]:** narzędzie „linia” — dorysowanie konturu bez nowego obszaru (oczy, wąsy, łodyżki, pajęczyna).
-  Na wzorze inną kreską (np. kreska-kropka), w legendzie jako „przeszycie nicią nr X”.
-- **Napisy [M]:** imię albo data do wyszycia — dowolna czcionka zamieniona na kontury, wstawiona jako obszar albo linia.
+- **Edycja linii detali [M]:** przeciąganie punktów, dokładanie odcinków, grubość (linia pojedyncza, potrójna, satyna)
+  i ścieg ozdobny (np. ząbki) widoczny na wzorze.
+- **Napisy [M]:** imię albo data do wyszycia — dowolna czcionka zamieniona na linie detali albo obszary.
 - **Edycja konturu [L]:** przeciąganie punktów linii, wygładzanie fragmentu, prostowanie odcinka. Mapa kolorów
   aktualizuje się według nowej linii.
-- **Zaznaczanie wielu obszarów [M]:** lasso albo Shift+klik, a potem jedna operacja dla wszystkich (kolor, połączenie, usunięcie).
+- **Zaznaczanie wielu obszarów [M]:** lasso albo Shift+klik, a potem jedna operacja dla wszystkich (kolor, połączenie,
+  usunięcie, kierunek ściegu).
 - **Wiaderko na oryginale [S]:** klik w zdjęcie z tolerancją koloru — szybkie wydzielenie fragmentu, którego
   upraszczanie nie złapało.
 - **Lupa i minimapa [S]:** przy malowaniu drobnych detali powiększenie pod kursorem i mały podgląd całości w rogu.
-- **Historia zmian jako lista [S]:** „Wiaderko: dach → Żółty”, „Połączono 3 z 5” — skok do dowolnego kroku.
+- **Historia zmian jako lista [S]:** „Wiaderko: dach → Żółty”, „Nowa linia detalu” — skok do dowolnego kroku.
 
 ## 🖨️ Przeniesienie na tkaninę
 
-- **Tryb projektora [M]:** wzór na pełnym ekranie (drugi monitor albo projektor nad stołem) w skali 1:1 po kalibracji
-  prostokątem o znanym wymiarze. Obrót, przesuwanie i ukrywanie już odrysowanych kolorów.
 - **Linie do kalkowania [S]:** kreska przerywana albo kropki zamiast ciągłej linii, cienka szarość zamiast czerni,
   wydruk bez numerów — wersje pod pisak znikający, kopiowanie przez szybę i druk na stabilizatorze rozpuszczalnym.
-- **Kalibracja drukarki [S]:** wydruk testowy z linijkami i poprawka skali X/Y oraz przesunięcia (jak w Kasetowniku),
-  bo część drukarek drukuje 1–2% mniej mimo „100%”.
+- **Kalibracja drukarki [S]:** wydruk testowy z linijkami i poprawka skali X/Y oraz przesunięcia (jak w Kasetowniku
+  i w projektorze), bo część drukarek drukuje 1–2% mniej mimo „100%”.
+- **Projektor: odhaczanie odrysowanych fragmentów [S]:** klik w obszar przygasza jego kontur, żeby było widać,
+  co już jest na tkaninie; do tego siatka pomocnicza co 1 cm.
 - **Szablony do aplikacji [M]:** kształty wybranych kolorów jako osobne elementy do wycięcia z tkaniny, z zapasem
   na podwinięcie i znacznikiem, która strona jest prawa. Ułożone oszczędnie na kartce.
-- **Eksport dla maszyn hafciarskich [L]:** pliki PES/DST z automatycznie wygenerowanym ściegiem (wypełnienie, satyna,
-  ścieg prosty) — dla osób, które mają też maszynę hafciarską. Duże, ale SVG z warstwami już jest dobrym startem.
+- **Eksport dla maszyn hafciarskich [L]:** pliki PES/DST z automatycznie wygenerowanym ściegiem (wypełnienie w kierunku
+  ze strzałek, satyna, ścieg prosty dla linii detali) — dla osób, które mają też maszynę hafciarską.
+  SVG z warstwami kolorów i linii jest dobrym startem.
 
 ## 🎨 Nici i kolory
 
@@ -107,4 +114,4 @@ Orientacyjna ilość pracy: **[S]** mała, **[M]** średnia, **[L]** duża.
 - **Testy wydruku na obrazach [S]:** kartki renderowane do PNG i porównywane z wzorcami — wykrywa przypadkowe
   zmiany w wyglądzie PDF/druku.
 - **Testy interfejsu [M]:** automatyczne klikanie w oknie (UI Automation) w GitHub Actions — otwarcie obrazka,
-  wiaderko, cofnięcie, eksport.
+  wiaderko, linia detalu, kierunek ściegu, cofnięcie, eksport, projektor.

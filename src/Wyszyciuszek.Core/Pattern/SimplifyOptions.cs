@@ -29,6 +29,12 @@ public sealed class SimplifyOptions
 
     public PaletteSource Source { get; set; } = PaletteSource.Automatic;
 
+    /// <summary>
+    /// Kolor, który zajmuje większość brzegów obrazka, od razu oznaczyć jako tkaninę (bez numeru, nie szyjemy).
+    /// Domyślnie wyłączone — włącza się ręcznie (i zostaje zapamiętane dla kolejnych obrazków).
+    /// </summary>
+    public bool BackgroundAsFabric { get; set; }
+
     /// <summary>Ziarno losowania (inne = trochę inny dobór kolorów przy tych samych ustawieniach).</summary>
     public int Seed { get; set; } = 1;
 

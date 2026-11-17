@@ -15,6 +15,8 @@ public sealed class RegionInfo
     public required Vector2 LabelPoint { get; init; }
     public required float LabelRadius { get; init; }
     public required RectF Bounds { get; init; }
+    /// <summary>Kierunek dłuższej osi plamy w stopniach [0°, 180°) — domyślny kierunek ściegu (45° dla plam okrągłych).</summary>
+    public float Axis { get; init; } = 45;
 }
 
 /// <summary>
@@ -93,6 +95,7 @@ public sealed class PatternAnalysis
         var colorArea = new int[paletteCount];
         var colorRegions = new int[paletteCount];
         var labelPoints = LabelOps.LabelPoints(comp);
+        var axes = PrincipalAxes(comp, labelPoints);
         var regions = new RegionInfo[comp.Count];
         for (int r = 0; r < comp.Count; r++)
         {
@@ -107,7 +110,7 @@ public sealed class PatternAnalysis
             {
                 Id = r, Color = c, Area = comp.Area[r],
                 LabelPoint = labelPoints[r].Point, LabelRadius = labelPoints[r].Radius,
-                Bounds = regionPaths[r].Bounds,
+                Bounds = regionPaths[r].Bounds, Axis = axes[r],
             };
         }
 
@@ -173,6 +176,72 @@ public sealed class PatternAnalysis
         for (int i = 0; i < n - 1; i++) o[i + 1] = (V(i) + V(i + 1)) * 0.5f;
         o[n] = V(n - 1);
         return o;
+    }
+
+    /// <summary>
+    /// Domyślny kierunek ściegu każdego obszaru: dłuższa oś plamy w okolicy miejsca na numer (tam stoi strzałka),
+    /// w stopniach [0°, 180°). Liczona lokalnie, bo np. łodyga z liściem albo wieniec płatków mają inny kształt
+    /// w całości, a inny w miejscu, które się wypełnia. Plamy prawie okrągłe dostają 45° — ukośne wypełnienie
+    /// nie układa się wzdłuż nitek tkaniny.
+    /// </summary>
+    internal static float[] PrincipalAxes(Components comp, (Vector2 Point, float Radius)[] labelPoints)
+    {
+        int n = comp.Count, w = comp.Width, h = comp.Height;
+        const int S = 6; // n, Σx, Σy, Σx², Σy², Σxy
+        var local = new double[n * S];
+        var global = new double[n * S];
+        var reach2 = new float[n];
+        for (int r = 0; r < n; r++)
+        {
+            float reach = Math.Max(6, labelPoints[r].Radius * 2);
+            reach2[r] = reach * reach;
+        }
+        for (int y = 0; y < h; y++)
+        {
+            float fy = y + 0.5f;
+            int row = y * w;
+            for (int x = 0; x < w; x++)
+            {
+                int r = comp.Map[row + x];
+                float fx = x + 0.5f;
+                Accumulate(global, r * S, fx, fy);
+                var c = labelPoints[r].Point;
+                float dx = fx - c.X, dy = fy - c.Y;
+                if (dx * dx + dy * dy <= reach2[r]) Accumulate(local, r * S, fx, fy);
+            }
+        }
+        var axes = new float[n];
+        for (int r = 0; r < n; r++)
+            axes[r] = AxisOf(local[r * S] >= 12 ? local : global, r * S);
+        return axes;
+
+        static void Accumulate(double[] m, int k, double x, double y)
+        {
+            m[k]++;
+            m[k + 1] += x;
+            m[k + 2] += y;
+            m[k + 3] += x * x;
+            m[k + 4] += y * y;
+            m[k + 5] += x * y;
+        }
+
+        static float AxisOf(double[] m, int k)
+        {
+            double a = Math.Max(1, m[k]);
+            double mx = m[k + 1] / a, my = m[k + 2] / a;
+            double cxx = m[k + 3] / a - mx * mx, cyy = m[k + 4] / a - my * my, cxy = m[k + 5] / a - mx * my;
+            double half = (cxx - cyy) / 2, root = Math.Sqrt(half * half + cxy * cxy);
+            double major = (cxx + cyy) / 2 + root, minor = (cxx + cyy) / 2 - root;
+            bool round = minor <= 1e-9 ? major <= 1e-9 : major / minor < 1.5; // stosunek osi < ~1,22
+            return round ? 45 : StitchAngle(0.5 * Math.Atan2(2 * cxy, cxx - cyy));
+        }
+    }
+
+    private static float StitchAngle(double radians)
+    {
+        double deg = radians * 180 / Math.PI % 180;
+        if (deg < 0) deg += 180;
+        return (float)(deg >= 180 ? 0 : deg);
     }
 
     /// <summary>Po wygładzeniu zamknięta figura jest nieco mniejsza — skalujemy ją z powrotem do pierwotnego pola.</summary>

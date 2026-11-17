@@ -356,4 +356,33 @@ public static class LabelOps
         foreach (var l in labels) h[l]++;
         return h[..paletteCount];
     }
+
+    /// <summary>
+    /// Kolor tła: ten, który zajmuje co najmniej <paramref name="minShare"/> pikseli na brzegach obrazka.
+    /// −1, gdy żaden nie dominuje (np. zdjęcie kadrowane „na styk” albo kilka kolorów tła).
+    /// </summary>
+    public static int DominantBorderLabel(byte[] labels, int w, int h, double minShare = 0.5)
+    {
+        if (w <= 0 || h <= 0 || labels.Length != w * h) return -1;
+        var counts = new int[256];
+        int total = 0;
+        void Add(int x, int y)
+        {
+            counts[labels[y * w + x]]++;
+            total++;
+        }
+        for (int x = 0; x < w; x++)
+        {
+            Add(x, 0);
+            if (h > 1) Add(x, h - 1);
+        }
+        for (int y = 1; y < h - 1; y++)
+        {
+            Add(0, y);
+            if (w > 1) Add(w - 1, y);
+        }
+        int best = 0;
+        for (int i = 1; i < 256; i++) if (counts[i] > counts[best]) best = i;
+        return counts[best] >= minShare * total ? best : -1;
+    }
 }

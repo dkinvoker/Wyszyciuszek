@@ -128,6 +128,81 @@ internal static unsafe partial class Native
     [LibraryImport("user32.dll")]
     internal static partial uint GetDpiForWindow(nint hwnd);
 
+    // ------------------------------------------------------------------ monitory (tryb projektora)
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct RECT
+    {
+        public int Left, Top, Right, Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MONITORINFOEXW
+    {
+        public uint cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+        public fixed char szDevice[32];
+    }
+
+    public const uint MONITOR_DEFAULTTONEAREST = 2;
+    public const uint MONITORINFOF_PRIMARY = 1;
+    public const int MDT_RAW_DPI = 2;
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint MonitorFromWindow(nint hwnd, uint flags);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetMonitorInfoW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetMonitorInfo(nint monitor, MONITORINFOEXW* info);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool EnumDisplayMonitors(nint hdc, nint clip, delegate* unmanaged<nint, nint, RECT*, nint, int> callback, nint data);
+
+    [LibraryImport("shcore.dll")]
+    internal static partial int GetDpiForMonitor(nint monitor, int type, out uint dpiX, out uint dpiY);
+
+    /// <summary>Monitor: uchwyt, prostokąt (piksele fizyczne), nazwa urządzenia, czy główny.</summary>
+    internal readonly record struct Monitor(nint Handle, RECT Bounds, string Device, bool Primary);
+
+    [ThreadStatic] private static List<nint>? s_monitors;
+
+    [UnmanagedCallersOnly]
+    private static int CollectMonitor(nint monitor, nint hdc, RECT* rect, nint data)
+    {
+        s_monitors?.Add(monitor);
+        return 1;
+    }
+
+    internal static Monitor? Describe(nint monitor)
+    {
+        var info = new MONITORINFOEXW { cbSize = (uint)sizeof(MONITORINFOEXW) };
+        if (!GetMonitorInfo(monitor, &info)) return null;
+        var device = new string(info.szDevice).TrimEnd('\0');
+        return new Monitor(monitor, info.rcMonitor, device, (info.dwFlags & MONITORINFOF_PRIMARY) != 0);
+    }
+
+    /// <summary>Wszystkie podłączone ekrany (główny pierwszy).</summary>
+    internal static List<Monitor> Monitors()
+    {
+        s_monitors = [];
+        try
+        {
+            EnumDisplayMonitors(0, 0, &CollectMonitor, 0);
+            return s_monitors.Select(Describe).OfType<Monitor>().OrderByDescending(m => m.Primary).ToList();
+        }
+        finally
+        {
+            s_monitors = null;
+        }
+    }
+
+    /// <summary>Fizyczna rozdzielczość ekranu z danych monitora (EDID) w pikselach na cal; 0, gdy nieznana.</summary>
+    internal static double RawDpi(nint monitor) =>
+        GetDpiForMonitor(monitor, MDT_RAW_DPI, out var x, out _) == 0 && x is >= 40 and <= 1200 ? x : 0;
+
     public const int SHCNE_ASSOCCHANGED = 0x08000000;
 
     [LibraryImport("shell32.dll")]

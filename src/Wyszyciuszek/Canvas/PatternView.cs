@@ -11,6 +11,7 @@ using Windows.Foundation;
 using Windows.Storage;
 using Windows.System;
 using Windows.UI;
+using Wyszyciuszek.Core.Imaging;
 using Wyszyciuszek.Core.Output;
 using Wyszyciuszek.Core.Pattern;
 using Wyszyciuszek.Core.Vector;
@@ -19,11 +20,12 @@ namespace Wyszyciuszek.Canvas;
 
 public enum ViewMode { Original, Compare, Colors, Pattern, Overlay }
 
-public enum EditTool { Select, Fill, Brush, Picker }
+public enum EditTool { Select, Fill, Brush, Picker, Line, Direction }
 
 /// <summary>
 /// Płótno: oryginał, porównanie, kolory, wzór do druku, kontury na oryginale. Zoom kółkiem, przesuwanie środkowym
-/// przyciskiem albo spacją, narzędzia: zaznaczanie, wiaderko, pędzel, pipeta (też prawy przycisk).
+/// przyciskiem albo spacją, narzędzia: zaznaczanie, wiaderko, pędzel, pipeta (też prawy przycisk), linia detalu
+/// i kierunek ściegu.
 /// </summary>
 public sealed partial class PatternView : UserControl
 {
@@ -49,28 +51,38 @@ public sealed partial class PatternView : UserControl
     private bool _needsFit = true;
     private float _split = 0.5f;
     private int _hover = -1;
+    private int _hoverLine = -1;
     private Vector2? _pointerWorld;
     private bool _spaceDown;
+    private bool _shiftDown;
 
-    private enum DragKind { None, Pan, Brush, Split }
+    private enum DragKind { None, Pan, Brush, Split, Line, Direction }
     private DragKind _drag;
-    private Vector2 _dragStart, _panStart;
+    private Vector2 _dragStart, _panStart, _directionStart;
     private readonly List<Vector2> _stroke = [];
     private int _strokeColor;
 
     private ViewMode _mode = ViewMode.Colors;
     private EditTool _tool = EditTool.Select;
     private int _selected = -1;
+    private int _selectedLine = -1;
     private bool _outlinesInColors;
+    private bool _showArrows;
 
     /// <summary>Kliknięto obszar narzędziem zaznaczania (−1 = tło poza wzorem).</summary>
     public event Action<int>? RegionSelected;
+    /// <summary>Kliknięto linię detalu narzędziem zaznaczania.</summary>
+    public event Action<int>? LineSelected;
     /// <summary>Wiaderko na obszarze.</summary>
     public event Action<int>? FillRequested;
     /// <summary>Pipeta: kolor (indeks palety) pod kursorem.</summary>
     public event Action<int>? ColorPicked;
     /// <summary>Koniec pociągnięcia pędzla: punkty (piksele obrazu roboczego), promień, kolor.</summary>
     public event Action<IReadOnlyList<Vector2>, float, int>? StrokeFinished;
+    /// <summary>Narysowano linię detalu: punkty (piksele obrazu roboczego) i kolor.</summary>
+    public event Action<IReadOnlyList<Vector2>, int>? LineFinished;
+    /// <summary>Kierunek ściegu: punkt w obszarze i kąt w stopniach (null = przywróć automatyczny).</summary>
+    public event Action<Vector2, float?>? DirectionSet;
     public event Action<int>? HoverChanged;
     public event Action? ZoomChanged;
     public event Action<IReadOnlyList<string>>? FilesDropped;
@@ -82,11 +94,15 @@ public sealed partial class PatternView : UserControl
         _canvas.PointerPressed += OnPointerPressed;
         _canvas.PointerMoved += OnPointerMoved;
         _canvas.PointerReleased += OnPointerReleased;
-        _canvas.PointerCaptureLost += (_, _) => EndDrag(commit: _drag == DragKind.Brush);
+        _canvas.PointerCaptureLost += (_, _) => EndDrag(commit: _drag is DragKind.Brush or DragKind.Line);
         _canvas.PointerExited += (_, _) =>
         {
             _pointerWorld = null;
-            if (_drag == DragKind.None) SetHover(-1);
+            if (_drag == DragKind.None)
+            {
+                SetHover(-1);
+                _hoverLine = -1;
+            }
             _canvas.Invalidate();
         };
         _canvas.PointerWheelChanged += OnWheel;
@@ -113,6 +129,11 @@ public sealed partial class PatternView : UserControl
         };
         KeyDown += (_, e) =>
         {
+            if (e.Key == VirtualKey.Shift && !_shiftDown)
+            {
+                _shiftDown = true;
+                if (_drag == DragKind.Line) _canvas.Invalidate();
+            }
             if (e.Key != VirtualKey.Space || _spaceDown) return;
             _spaceDown = true;
             UpdateCursor();
@@ -120,6 +141,11 @@ public sealed partial class PatternView : UserControl
         };
         KeyUp += (_, e) =>
         {
+            if (e.Key == VirtualKey.Shift)
+            {
+                _shiftDown = false;
+                if (_drag == DragKind.Line) _canvas.Invalidate();
+            }
             if (e.Key != VirtualKey.Space) return;
             _spaceDown = false;
             UpdateCursor();
@@ -140,7 +166,7 @@ public sealed partial class PatternView : UserControl
         set { _tool = value; UpdateCursor(); _canvas.Invalidate(); }
     }
 
-    /// <summary>Kolor pędzla i wiaderka (indeks palety).</summary>
+    /// <summary>Kolor pędzla, wiaderka i linii (indeks palety).</summary>
     public int PaintColor { get; set; }
 
     /// <summary>Promień pędzla w pikselach obrazu roboczego.</summary>
@@ -152,10 +178,23 @@ public sealed partial class PatternView : UserControl
         set { _outlinesInColors = value; _canvas.Invalidate(); }
     }
 
+    /// <summary>Strzałki kierunku ściegu w widoku kolorów.</summary>
+    public bool ShowArrows
+    {
+        get => _showArrows;
+        set { _showArrows = value; _canvas.Invalidate(); }
+    }
+
     public int SelectedRegion
     {
         get => _selected;
         set { _selected = value; _canvas.Invalidate(); }
+    }
+
+    public int SelectedLine
+    {
+        get => _selectedLine;
+        set { _selectedLine = value; _canvas.Invalidate(); }
     }
 
     public bool HasContent => _doc is not null;
@@ -167,7 +206,9 @@ public sealed partial class PatternView : UserControl
         _doc = doc;
         _source = source;
         _selected = -1;
+        _selectedLine = -1;
         _hover = -1;
+        _hoverLine = -1;
         _fitWidth = _fitHeight = -1;
         CheckSize();
         _canvas.Invalidate();
@@ -196,10 +237,13 @@ public sealed partial class PatternView : UserControl
         _canvas.Invalidate();
     }
 
-    /// <summary>Ustawienia wydruku się zmieniły (grubość linii, numery…) — nowy kompozytor.</summary>
+    /// <summary>Ustawienia wydruku, linie albo kierunki się zmieniły — nowy kompozytor (kontury zostają).</summary>
     public void RefreshComposer()
     {
         if (_analysis is not null && _doc is not null && _analysis.Width == _doc.Width) _composer = new PatternComposer(_doc, _analysis);
+        if (_doc is not null && _selectedLine >= _doc.Lines.Count) _selectedLine = -1;
+        if (_doc is not null && _hoverLine >= _doc.Lines.Count) _hoverLine = -1;
+        _stroke.Clear();
         _canvas.Invalidate();
     }
 
@@ -259,6 +303,21 @@ public sealed partial class PatternView : UserControl
 
     // ================================================================== rysowanie
 
+    /// <summary>Piksele obrazu roboczego na milimetr tkaniny.</summary>
+    private float PxPerMm => _doc is { MmPerPixel: > 0 } d ? (float)(1 / d.MmPerPixel) : 4;
+
+    /// <summary>Strzałki widać w widoku kolorów po włączeniu przełącznika i zawsze przy narzędziu „kierunek”.</summary>
+    private bool ArrowsVisible => _showArrows || _tool == EditTool.Direction;
+
+    /// <summary>Styl widoku „kolory nici”: kolory, linie detali w kolorze nici, opcjonalnie kontury i strzałki.</summary>
+    private DesignStyle ColorsStyle() => new()
+    {
+        FullColor = true, Numbers = false, Outline = _outlinesInColors, LineWidth = 1.2f / _zoom,
+        Lines = true, DetailWidth = Math.Max(0.8f * PxPerMm, 2.2f / _zoom),
+        Arrows = ArrowsVisible, ArrowWidth = 1.6f / _zoom, MinArrow = 18 / _zoom, MaxArrow = Math.Max(14 * PxPerMm, 40 / _zoom),
+        EmphasizeManual = _tool == EditTool.Direction,
+    };
+
     private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
     {
         var ds = args.DrawingSession;
@@ -288,13 +347,22 @@ public sealed partial class PatternView : UserControl
                 case ViewMode.Overlay:
                     DrawSource(ds, w, h);
                     if (_analysis is not null) surface.Stroke(_analysis.Outline, new(226, 87, 76), 1.6f / _zoom);
+                    _composer?.DrawLines(surface, ColorsStyle());
                     break;
                 case ViewMode.Colors:
                     DrawColors(ds, surface, w, h);
                     break;
                 case ViewMode.Pattern:
-                    if (_composer is not null) _composer.DrawDesign(surface, _composer.PrintStyle());
-                    else DrawColors(ds, surface, w, h);
+                    if (_composer is not null)
+                    {
+                        var style = _composer.PrintStyle();
+                        if (_tool == EditTool.Direction) style = style with { Arrows = true, EmphasizeManual = true };
+                        _composer.DrawDesign(surface, style);
+                    }
+                    else
+                    {
+                        DrawColors(ds, surface, w, h);
+                    }
                     break;
                 case ViewMode.Compare:
                     float sx = _split * w;
@@ -317,6 +385,9 @@ public sealed partial class PatternView : UserControl
         ds.Transform = Matrix3x2.Identity;
         if (_mode == ViewMode.Compare) DrawSplitHandle(ds, screenRect);
         DrawBrushPreview(ds);
+        DrawLinePreview(ds);
+        DrawDirectionPreview(ds);
+        _cache.EndFrame();
     }
 
     private void DrawWeave(CanvasDrawingSession ds, Vector2 size)
@@ -345,10 +416,7 @@ public sealed partial class PatternView : UserControl
             DrawSource(ds, w, h);
             return;
         }
-        _composer.DrawDesign(surface, new DesignStyle
-        {
-            FullColor = true, Numbers = false, Outline = _outlinesInColors, LineWidth = 1.2f / _zoom,
-        });
+        _composer.DrawDesign(surface, ColorsStyle());
     }
 
     private void DrawHoop(CanvasDrawingSession ds, int w, int h)
@@ -382,12 +450,27 @@ public sealed partial class PatternView : UserControl
             surface.Stroke(p, new(255, 255, 255), 4f / _zoom);
             surface.Stroke(p, new(226, 87, 76), 2f / _zoom, [6f / _zoom, 4f / _zoom]);
         }
-        bool showHover = _drag == DragKind.None && _tool != EditTool.Brush && !_spaceDown && _mode != ViewMode.Original;
-        if (showHover && _hover >= 0 && _hover < _analysis.RegionCount && _hover != _selected)
+        bool showHover = _drag == DragKind.None && _tool is EditTool.Select or EditTool.Fill or EditTool.Picker or EditTool.Direction
+                         && !_spaceDown && _mode != ViewMode.Original;
+        if (showHover && _hoverLine < 0 && _hover >= 0 && _hover < _analysis.RegionCount && _hover != _selected)
         {
             var p = _analysis.RegionPaths[_hover];
             surface.Stroke(p, new(18, 20, 23), 3.5f / _zoom);
             surface.Stroke(p, new(255, 255, 255), 1.5f / _zoom);
+        }
+
+        // linie detali: zaznaczona i pod kursorem
+        if (_composer is null || _doc is null) return;
+        var lines = _composer.LinePaths;
+        if (_selectedLine >= 0 && _selectedLine < lines.Length)
+        {
+            surface.Stroke(lines[_selectedLine], new(255, 255, 255), 5f / _zoom);
+            surface.Stroke(lines[_selectedLine], new(226, 87, 76), 2.5f / _zoom, [6f / _zoom, 4f / _zoom]);
+        }
+        if (_tool == EditTool.Select && _drag == DragKind.None && _hoverLine >= 0 && _hoverLine < lines.Length && _hoverLine != _selectedLine)
+        {
+            surface.Stroke(lines[_hoverLine], new(18, 20, 23), 5f / _zoom);
+            surface.Stroke(lines[_hoverLine], new(255, 255, 255), 2f / _zoom);
         }
     }
 
@@ -409,14 +492,27 @@ public sealed partial class PatternView : UserControl
         public static readonly Color White = Color.FromArgb(255, 255, 255, 255);
     }
 
+    private Color PaletteColor(int index)
+    {
+        if (_doc is null || index < 0 || index >= _doc.Palette.Count) return Thread;
+        var c = _doc.Palette[index].Color;
+        return Color.FromArgb(255, c.R, c.G, c.B);
+    }
+
     private void DrawBrushPreview(CanvasDrawingSession ds)
     {
         if (_doc is null) return;
         float r = BrushRadius * _zoom;
-        if (_stroke.Count > 0 && _strokeColor >= 0 && _strokeColor < _doc.Palette.Count)
+        if (_drag == DragKind.Brush && _stroke.Count > 0)
         {
-            var c = _doc.Palette[_strokeColor].Color;
-            var color = Color.FromArgb(255, c.R, c.G, c.B);
+            var color = PaletteColor(_strokeColor);
+            if (_stroke.Count == 1) ds.FillCircle(ToScreen(_stroke[0]), r, color);
+            for (int i = 1; i < _stroke.Count; i++) ds.DrawLine(ToScreen(_stroke[i - 1]), ToScreen(_stroke[i]), color, 2 * r, _round);
+        }
+        else if (_drag == DragKind.None && _stroke.Count > 0 && _tool == EditTool.Brush)
+        {
+            // pociągnięcie czeka na przeliczenie wzoru
+            var color = PaletteColor(_strokeColor);
             if (_stroke.Count == 1) ds.FillCircle(ToScreen(_stroke[0]), r, color);
             for (int i = 1; i < _stroke.Count; i++) ds.DrawLine(ToScreen(_stroke[i - 1]), ToScreen(_stroke[i]), color, 2 * r, _round);
         }
@@ -425,6 +521,47 @@ public sealed partial class PatternView : UserControl
             var p = ToScreen(pw);
             ds.DrawCircle(p, r, Color.FromArgb(200, 0, 0, 0), 3);
             ds.DrawCircle(p, r, Colors.White, 1.2f);
+        }
+    }
+
+    /// <summary>Punkty rysowanej linii (z Shift — prosta od początku do kursora).</summary>
+    private List<Vector2> LinePoints()
+    {
+        if (_shiftDown && _stroke.Count > 1) return [_stroke[0], _stroke[^1]];
+        return _stroke;
+    }
+
+    private void DrawLinePreview(CanvasDrawingSession ds)
+    {
+        if (_drag != DragKind.Line || _stroke.Count == 0) return;
+        var pts = LinePoints();
+        float width = Math.Max(0.8f * PxPerMm * _zoom, 2.2f);
+        var color = PaletteColor(_strokeColor);
+        for (int i = 1; i < pts.Count; i++)
+        {
+            ds.DrawLine(ToScreen(pts[i - 1]), ToScreen(pts[i]), Color.FromArgb(160, 0, 0, 0), width + 2, _round);
+        }
+        for (int i = 1; i < pts.Count; i++) ds.DrawLine(ToScreen(pts[i - 1]), ToScreen(pts[i]), color, width, _round);
+    }
+
+    private void DrawDirectionPreview(CanvasDrawingSession ds)
+    {
+        if (_drag != DragKind.Direction || _pointerWorld is not { } pw) return;
+        var a = ToScreen(_directionStart);
+        var b = ToScreen(pw);
+        var d = b - a;
+        float len = d.Length();
+        ds.FillCircle(a, 4, Thread);
+        if (len < 6) return;
+        var dir = d / len;
+        var start = a - dir * len; // kierunek obowiązuje w obie strony
+        ds.DrawLine(start, b, Color.FromArgb(200, 0, 0, 0), 5, _round);
+        ds.DrawLine(start, b, Thread, 2.5f, _round);
+        foreach (var (tip, back) in new[] { (b, -dir), (start, dir) })
+        {
+            var n = new Vector2(-back.Y, back.X);
+            ds.DrawLine(tip, tip + back * 12 + n * 7, Thread, 2.5f, _round);
+            ds.DrawLine(tip, tip + back * 12 - n * 7, Thread, 2.5f, _round);
         }
     }
 
@@ -439,6 +576,8 @@ public sealed partial class PatternView : UserControl
     }
 
     private int RegionAt(Vector2 world) => _analysis?.HitTest(world) ?? -1;
+
+    private int LineAt(Vector2 world) => _doc?.HitLine(world, 6 / _zoom) ?? -1;
 
     private int ColorAt(Vector2 world)
     {
@@ -461,6 +600,7 @@ public sealed partial class PatternView : UserControl
         var pos = pt.Position.ToVector2();
         var props = pt.Properties;
         Focus(FocusState.Pointer);
+        _shiftDown = (e.KeyModifiers & VirtualKeyModifiers.Shift) != 0;
         if (_doc is null) return;
         var world = ToWorld(pos);
 
@@ -487,20 +627,37 @@ public sealed partial class PatternView : UserControl
             }
             else if (_tool == EditTool.Select)
             {
-                SelectedRegion = RegionAt(world);
-                RegionSelected?.Invoke(_selected);
+                int line = _mode == ViewMode.Original ? -1 : LineAt(world);
+                if (line >= 0)
+                {
+                    _selected = -1;
+                    SelectedLine = line;
+                    LineSelected?.Invoke(line);
+                }
+                else
+                {
+                    _selectedLine = -1;
+                    SelectedRegion = RegionAt(world);
+                    RegionSelected?.Invoke(_selected);
+                }
             }
             else if (_tool == EditTool.Fill)
             {
                 int r = RegionAt(world);
                 if (r >= 0) FillRequested?.Invoke(r);
             }
-            else if (_tool == EditTool.Brush)
+            else if (_tool is EditTool.Brush or EditTool.Line)
             {
                 _stroke.Clear();
                 _stroke.Add(world);
                 _strokeColor = PaintColor;
-                BeginDrag(DragKind.Brush, pos, e);
+                BeginDrag(_tool == EditTool.Brush ? DragKind.Brush : DragKind.Line, pos, e);
+            }
+            else if (_tool == EditTool.Direction && RegionAt(world) >= 0 && ColorAt(world) is var c && c >= 0 && c < _doc.Palette.Count && !_doc.Palette[c].IsFabric)
+            {
+                // tkaniny nie szyjemy — kierunek dla niej nic nie znaczy
+                _directionStart = world;
+                BeginDrag(DragKind.Direction, pos, e);
             }
         }
         e.Handled = true;
@@ -531,9 +688,15 @@ public sealed partial class PatternView : UserControl
                 _split = Math.Clamp((pos.X - _pan.X) / (_doc.Width * _zoom), 0, 1);
                 break;
             case DragKind.Brush:
+            case DragKind.Line:
+                _shiftDown = (e.KeyModifiers & VirtualKeyModifiers.Shift) != 0;
                 if (Vector2.Distance(world, _stroke[^1]) * _zoom >= 1.5f) _stroke.Add(world);
                 break;
+            case DragKind.Direction:
+                break;
             default:
+                int line = _tool == EditTool.Select && _mode != ViewMode.Original ? LineAt(world) : -1;
+                if (line != _hoverLine) _hoverLine = line;
                 SetHover(RegionAt(world));
                 if (_mode == ViewMode.Compare) UpdateCursor(NearSplit(pos));
                 break;
@@ -545,19 +708,35 @@ public sealed partial class PatternView : UserControl
     {
         if (_drag == DragKind.None) return;
         var pos = e.GetCurrentPoint(_canvas).Position.ToVector2();
-        if (_drag == DragKind.Brush) _stroke.Add(ToWorld(pos));
-        _canvas.ReleasePointerCapture(e.Pointer);
+        var world = ToWorld(pos);
+        _pointerWorld = world;
+        _shiftDown = (e.KeyModifiers & VirtualKeyModifiers.Shift) != 0;
+        if (_drag is DragKind.Brush or DragKind.Line) _stroke.Add(world);
+        // najpierw zatwierdzenie: zwolnienie myszy od razu wywołuje PointerCaptureLost (które tylko anuluje)
         EndDrag(commit: true);
+        _canvas.ReleasePointerCapture(e.Pointer);
     }
 
     private void EndDrag(bool commit)
     {
         var kind = _drag;
         _drag = DragKind.None;
-        if (kind == DragKind.Brush)
+        switch (kind)
         {
-            if (commit && _stroke.Count > 0) StrokeFinished?.Invoke(_stroke.ToArray(), BrushRadius, _strokeColor);
-            else _stroke.Clear();
+            case DragKind.Brush:
+                if (commit && _stroke.Count > 0) StrokeFinished?.Invoke(_stroke.ToArray(), BrushRadius, _strokeColor);
+                else _stroke.Clear();
+                break;
+            case DragKind.Line:
+                var points = LinePoints().ToArray();
+                _stroke.Clear();
+                if (commit && points.Length > 1) LineFinished?.Invoke(points, _strokeColor);
+                break;
+            case DragKind.Direction when commit && _pointerWorld is { } end:
+                // krótkie kliknięcie = kierunek automatyczny
+                if (Vector2.Distance(end, _directionStart) * _zoom < 6) DirectionSet?.Invoke(_directionStart, null);
+                else DirectionSet?.Invoke(_directionStart, StitchPlan.AngleOf(_directionStart, end));
+                break;
         }
         UpdateCursor();
         _canvas.Invalidate();

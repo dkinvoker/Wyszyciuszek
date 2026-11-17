@@ -106,7 +106,11 @@ public sealed partial class MainWindow : Window
         }
 
         AppWindow.Closing += OnAppWindowClosing;
-        Closed += (_, _) => View.Shutdown();
+        Closed += (_, _) =>
+        {
+            _projector?.Close();
+            View.Shutdown();
+        };
         RootHost.Loaded += (_, _) => UpdateCaptionInset();
         AppWindow.Changed += (_, _) => UpdateCaptionInset();
         RootHost.KeyDown += Root_KeyDown;
@@ -150,6 +154,22 @@ public sealed partial class MainWindow : Window
             SetPaintColor(_analysis!.Regions[r].Color);
             UpdateHint();
         };
+        View.LineSelected += i =>
+        {
+            if (Doc is not null && i >= 0 && i < Doc.Lines.Count) SetPaintColor(Doc.Lines[i].Color);
+            UpdateHint();
+        };
+        View.LineFinished += (points, color) =>
+        {
+            if (_session is null || color >= Doc!.Palette.Count) return;
+            if (!_session.AddLine(points, color)) ShowToast("Za krótka linia", "Przeciągnij myszą, żeby narysować linię detalu.");
+        };
+        View.DirectionSet += (point, angle) =>
+        {
+            if (_session is null || !AnalysisIsCurrent) return;
+            if (!_session.SetStitchDirection(_analysis!.Components, point, angle) && angle is null)
+                ShowToast("Kierunek jest automatyczny", "Przeciągnij w obszarze, żeby ustawić kierunek ściegu ręcznie.");
+        };
         View.FillRequested += r =>
         {
             if (_session is null || !AnalysisIsCurrent || _paintColor >= Doc!.Palette.Count) return;
@@ -185,7 +205,7 @@ public sealed partial class MainWindow : Window
         _session.Changed += OnSessionChanged;
         _analysis = null;
         _analysisLabels = null;
-        _paintColor = 0;
+        _paintColor = Math.Max(0, doc.Palette.FindIndex(p => !p.IsFabric));
         _editedSinceSimplify = false;
 
         View.SetDocument(doc, image?.Bitmap);
@@ -195,6 +215,7 @@ public sealed partial class MainWindow : Window
         LoadOptionsToUi();
         RebuildPalette();
         UpdateAll();
+        RefreshProjector();
         if (doc.HasPattern) RequestAnalysis();
     }
 
@@ -206,9 +227,14 @@ public sealed partial class MainWindow : Window
             RequestAnalysis();
         }
         if (kind.HasFlag(ChangeKind.PaletteStructure)) RebuildPalette();
-        else if (kind.HasFlag(ChangeKind.PaletteColors)) UpdatePaletteRows();
+        else if (kind.HasFlag(ChangeKind.PaletteColors) || kind.HasFlag(ChangeKind.Annotations)) UpdatePaletteRows();
         if (Doc is not null && _paintColor >= Doc.Palette.Count) _paintColor = Math.Max(0, Doc.Palette.Count - 1);
-        if (kind.HasFlag(ChangeKind.Print)) View.RefreshComposer();
+        // po nowej palecie (np. uproszczeniu) pędzel nie startuje od tkaniny, tylko od pierwszej nici do szycia
+        if (kind.HasFlag(ChangeKind.PaletteStructure) && Doc is { } d && _paintColor < d.Palette.Count && d.Palette[_paintColor].IsFabric
+            && d.Palette.FindIndex(p => !p.IsFabric) is var first and >= 0)
+            _paintColor = first;
+        if (kind.HasFlag(ChangeKind.Print) || kind.HasFlag(ChangeKind.Annotations)) View.RefreshComposer();
+        if (!kind.HasFlag(ChangeKind.Labels)) RefreshProjector(); // po zmianie mapy kolorów — dopiero z nowymi konturami
         View.Invalidate();
         UpdatePaintSwatch();
         UpdateTitle();
@@ -238,6 +264,7 @@ public sealed partial class MainWindow : Window
             _analysis = an;
             _analysisLabels = labels;
             View.SetAnalysis(an);
+            RefreshProjector();
             UpdatePaletteRows();
             UpdateStats();
             UpdatePrintInfo();
@@ -505,13 +532,23 @@ public sealed partial class MainWindow : Window
         ToolFill.IsChecked = tool == EditTool.Fill;
         ToolBrush.IsChecked = tool == EditTool.Brush;
         ToolPicker.IsChecked = tool == EditTool.Picker;
+        ToolLine.IsChecked = tool == EditTool.Line;
+        ToolDirection.IsChecked = tool == EditTool.Direction;
         BrushPanel.Visibility = tool == EditTool.Brush ? Visibility.Visible : Visibility.Collapsed;
-        // malowanie na oryginale nic nie pokazuje — przełącz na kolory
-        if (tool is EditTool.Brush or EditTool.Fill && View.Mode is ViewMode.Original or ViewMode.Overlay)
+        // malowanie na oryginale nic nie pokazuje — przełącz na kolory (strzałki są w kolorach i na wzorze)
+        bool needsColors = tool switch
+        {
+            EditTool.Brush or EditTool.Fill => View.Mode is ViewMode.Original or ViewMode.Overlay,
+            EditTool.Line => View.Mode is ViewMode.Original,
+            EditTool.Direction => View.Mode is not (ViewMode.Colors or ViewMode.Pattern),
+            _ => false,
+        };
+        if (needsColors)
         {
             View.Mode = ViewMode.Colors;
             SyncViewToggles();
         }
+        if (tool != EditTool.Select && View.SelectedLine >= 0) View.SelectedLine = -1;
         UpdateHint();
     }
 
@@ -537,6 +574,22 @@ public sealed partial class MainWindow : Window
     }
 
     private void OutlineToggle_Click(object sender, RoutedEventArgs e) => View.OutlinesInColors = OutlineToggle.IsChecked == true;
+
+    private void ArrowToggle_Click(object sender, RoutedEventArgs e)
+    {
+        View.ShowArrows = ArrowToggle.IsChecked == true;
+        if (View.ShowArrows && View.Mode is not (ViewMode.Colors or ViewMode.Pattern or ViewMode.Compare)) SetViewMode(ViewMode.Colors);
+    }
+
+    /// <summary>Usuwa zaznaczoną linię detalu.</summary>
+    private bool DeleteSelectedLine()
+    {
+        int i = View.SelectedLine;
+        if (_session is null || i < 0 || !_session.DeleteLine(i)) return false;
+        View.SelectedLine = -1;
+        UpdateHint();
+        return true;
+    }
 
     private void BrushSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
@@ -576,7 +629,7 @@ public sealed partial class MainWindow : Window
         }
         var c = Doc.Palette[_paintColor].Color;
         PaintSwatch.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, c.R, c.G, c.B));
-        PaintNumber.Text = (_paintColor + 1).ToString();
+        PaintNumber.Text = Doc.ThreadLabel(_paintColor);
         PaintNumber.Foreground = new SolidColorBrush(c.PrefersLightText ? Colors.White : Colors.Black);
     }
 
@@ -613,6 +666,10 @@ public sealed partial class MainWindow : Window
             case VirtualKey.G: SetTool(EditTool.Fill); break;
             case VirtualKey.B: SetTool(EditTool.Brush); break;
             case VirtualKey.I: SetTool(EditTool.Picker); break;
+            case VirtualKey.L: SetTool(EditTool.Line); break;
+            case VirtualKey.D: SetTool(EditTool.Direction); break;
+            case VirtualKey.Delete: case VirtualKey.Back: if (!DeleteSelectedLine()) return; break;
+            case VirtualKey.F5: Projector_Click(this, new RoutedEventArgs()); break;
             case VirtualKey.Number1: SetViewMode(ViewMode.Original); break;
             case VirtualKey.Number2: SetViewMode(ViewMode.Compare); break;
             case VirtualKey.Number3: SetViewMode(ViewMode.Colors); break;
@@ -623,7 +680,7 @@ public sealed partial class MainWindow : Window
             case (VirtualKey)189: case VirtualKey.Subtract: View.ZoomBy(0.8f); break; // „-”
             case (VirtualKey)219: BrushSlider.Value = Math.Max(BrushSlider.Minimum, BrushSlider.Value / 1.25); break; // [
             case (VirtualKey)221: BrushSlider.Value = Math.Min(BrushSlider.Maximum, BrushSlider.Value * 1.25); break; // ]
-            case VirtualKey.Escape: View.SelectedRegion = -1; UpdateHint(); break;
+            case VirtualKey.Escape: View.SelectedRegion = -1; View.SelectedLine = -1; UpdateHint(); break;
             default: return;
         }
         e.Handled = true;
@@ -644,6 +701,7 @@ public sealed partial class MainWindow : Window
         SaveButton.IsEnabled = has;
         ExportButton.IsEnabled = has;
         PrintButton.IsEnabled = has;
+        ProjectorButton.IsEnabled = has;
         bool any = _session is not null;
         ToolRail.Visibility = ViewBar.Visibility = ZoomBar.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
         EmptyState.Visibility = any ? Visibility.Collapsed : Visibility.Visible;
@@ -666,6 +724,7 @@ public sealed partial class MainWindow : Window
         SaveButton.IsEnabled = has;
         ExportButton.IsEnabled = has;
         PrintButton.IsEnabled = has;
+        ProjectorButton.IsEnabled = has;
     }
 
     private void UpdateUndo()
@@ -703,11 +762,21 @@ public sealed partial class MainWindow : Window
         }
         string toolHint = View.Tool switch
         {
-            EditTool.Select => "Kliknij obszar, by zobaczyć jego nić. Środkowy przycisk lub spacja — przesuwanie, kółko — powiększenie.",
+            EditTool.Select => "Kliknij obszar albo linię detalu, by zobaczyć jej nić. Środkowy przycisk lub spacja — przesuwanie, kółko — powiększenie.",
             EditTool.Fill => "Kliknij obszar, by nadać mu wybraną nić. Prawy przycisk — weź kolor z wzoru.",
             EditTool.Brush => "Maluj wybraną nicią, by poprawić kształty. [ i ] zmieniają rozmiar pędzla. Prawy przycisk — pipeta.",
+            EditTool.Line => "Rysuj linię detalu wybraną nicią (oczy, wąsy, łodyżki). Shift — prosta. Zaznaczysz ją strzałką (V), usuniesz klawiszem Delete.",
+            EditTool.Direction => "Przeciągnij w obszarze w stronę, w którą chcesz szyć. Samo kliknięcie przywraca kierunek automatyczny (grubsze strzałki — ustawione ręcznie).",
             _ => "Kliknij na wzorze, by wybrać nić do malowania.",
         };
+        if (Doc is { } doc && View.SelectedLine is var li and >= 0 && li < doc.Lines.Count)
+        {
+            var line = doc.Lines[li];
+            var name = line.Color < doc.Palette.Count ? doc.Palette[line.Color].Name : "";
+            double cm = line.Length * doc.MmPerPixel / 10;
+            HintText.Text = $"Zaznaczona linia detalu: nić {doc.ThreadLabel(line.Color)} „{name}” · {cm:0.#} cm — kliknij inną nić na liście, by ją zmienić; Delete usuwa linię.";
+            return;
+        }
         int region = View.SelectedRegion;
         if (AnalysisIsCurrent && Doc is { } d)
         {
@@ -718,7 +787,8 @@ public sealed partial class MainWindow : Window
                 var info = an.Regions[r];
                 var e = d.Palette[info.Color];
                 double cm2 = info.Area * d.MmPerPixel * d.MmPerPixel / 100;
-                HintText.Text = $"Zaznaczony obszar: nić {info.Color + 1} „{e.Name}”{(e.IsFabric ? " (tkanina)" : "")} · ok. {cm2:0.#} cm² — wiaderkiem (G) nadasz mu inną nić.";
+                var what = e.IsFabric ? "tkanina" : $"nić {d.ThreadLabel(info.Color)}";
+                HintText.Text = $"Zaznaczony obszar: {what} „{e.Name}” · ok. {cm2:0.#} cm² — wiaderkiem (G) nadasz mu inną nić, narzędziem D zmienisz kierunek ściegu.";
                 return;
             }
         }

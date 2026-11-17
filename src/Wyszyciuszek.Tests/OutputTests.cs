@@ -129,7 +129,8 @@ public class OutputTests
         var x = XDocument.Parse(svg);
         XNamespace ns = "http://www.w3.org/2000/svg";
         var layers = x.Root!.Elements(ns + "g").ToList();
-        Assert.Equal(doc.Palette.Count + 2, layers.Count); // kolory + kontury + numery
+        Assert.Equal(doc.Palette.Count + 3, layers.Count); // kolory + kontury + kierunek (ukryty) + numery
+        Assert.Contains(layers, l => l.Attribute("id")?.Value == "kierunek" && l.Attribute("style")?.Value == "display:none");
         Assert.Equal("120mm", x.Root.Attribute("width")!.Value);
         Assert.NotEmpty(layers[^1].Elements(ns + "text"));
 
@@ -147,10 +148,14 @@ public class OutputTests
         int stitched = an.Regions.Count(r => !doc.Palette[r.Color].IsFabric);
         Assert.Equal(stitched, rec.Texts.Count);
 
+        // tkanina nie ma numeru i nie zabiera go — pierwsza szyta nić to dalej „1”
         doc.Palette[0].IsFabric = true;
         rec = new RecordingSurface();
         composer.DrawDesign(rec, composer.PrintStyle());
-        Assert.DoesNotContain(rec.Texts, t => t == "1");
+        int stitchedNow = an.Regions.Count(r => !doc.Palette[r.Color].IsFabric);
+        Assert.Equal(stitchedNow, rec.Texts.Count);
+        Assert.Contains("1", rec.Texts);
+        Assert.DoesNotContain(rec.Texts, t => t == doc.Palette.Count.ToString());
         Assert.Equal(0, composer.CountUnnumbered(composer.PrintStyle()));
 
         // przy maleńkim wzorze numery się nie mieszczą

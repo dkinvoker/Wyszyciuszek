@@ -16,20 +16,25 @@ public enum ChangeKind
     PaletteStructure = 4,
     /// <summary>Ustawienia wydruku.</summary>
     Print = 8,
+    /// <summary>Linie detali albo kierunki ściegu (konturów nie trzeba przeliczać).</summary>
+    Annotations = 16,
     /// <summary>Wszystko naraz (nowy projekt, cofnięcie).</summary>
-    All = Labels | PaletteColors | PaletteStructure | Print,
+    All = Labels | PaletteColors | PaletteStructure | Print | Annotations,
 }
 
 /// <summary>
-/// Edycja projektu z historią (cofnij/ponów). Każda operacja zapisuje migawkę mapy kolorów i palety, więc da się wrócić
-/// także po ponownym uproszczeniu obrazu. Niezależna od interfejsu — testowana jednostkowo.
+/// Edycja projektu z historią (cofnij/ponów). Każda operacja zapisuje migawkę mapy kolorów, palety, linii detali
+/// i kierunków ściegu, więc da się wrócić także po ponownym uproszczeniu obrazu. Niezależna od interfejsu — testowana
+/// jednostkowo.
 /// </summary>
 public sealed class EditorSession
 {
     private const int MaxHistory = 60;
     private static readonly TimeSpan CoalesceWindow = TimeSpan.FromSeconds(2);
+    private const ChangeKind Everything = ChangeKind.Labels | ChangeKind.PaletteColors | ChangeKind.PaletteStructure | ChangeKind.Annotations;
 
-    private sealed record Snapshot(int Width, int Height, byte[] Labels, PaletteEntry[] Palette, string? Key, DateTime Time);
+    private sealed record Snapshot(
+        int Width, int Height, byte[] Labels, PaletteEntry[] Palette, DetailLine[] Lines, StitchHint[] Hints, string? Key, DateTime Time);
 
     private readonly List<Snapshot> _undo = [];
     private readonly List<Snapshot> _redo = [];
@@ -56,8 +61,12 @@ public sealed class EditorSession
 
     public void MarkSaved() => IsDirty = false;
 
-    private Snapshot Capture(string? key) =>
-        new(Document.Width, Document.Height, (byte[])Document.Labels.Clone(), Document.Palette.Select(p => p.Clone()).ToArray(), key, Clock());
+    private Snapshot Capture(string? key) => new(
+        Document.Width, Document.Height, (byte[])Document.Labels.Clone(),
+        Document.Palette.Select(p => p.Clone()).ToArray(),
+        Document.Lines.Select(l => l.Clone()).ToArray(),
+        Document.StitchHints.Select(h => h.Clone()).ToArray(),
+        key, Clock());
 
     /// <summary>Zapamiętuje stan przed zmianą. Zmiany z tym samym kluczem w krótkim odstępie łączą się w jeden krok.</summary>
     private void PushUndo(string? coalesceKey = null)
@@ -81,6 +90,8 @@ public sealed class EditorSession
         Document.Height = s.Height;
         Document.Labels = s.Labels;
         Document.Palette = s.Palette.Select(p => p.Clone()).ToList();
+        Document.Lines = s.Lines.Select(l => l.Clone()).ToList();
+        Document.StitchHints = s.Hints.Select(h => h.Clone()).ToList();
     }
 
     private void Raise(ChangeKind kind)
@@ -95,7 +106,7 @@ public sealed class EditorSession
         _redo.Add(Capture(null));
         Restore(_undo[^1]);
         _undo.RemoveAt(_undo.Count - 1);
-        Raise(ChangeKind.Labels | ChangeKind.PaletteColors | ChangeKind.PaletteStructure);
+        Raise(Everything);
         return true;
     }
 
@@ -105,7 +116,7 @@ public sealed class EditorSession
         _undo.Add(Capture(null));
         Restore(_redo[^1]);
         _redo.RemoveAt(_redo.Count - 1);
-        Raise(ChangeKind.Labels | ChangeKind.PaletteColors | ChangeKind.PaletteStructure);
+        Raise(Everything);
         return true;
     }
 
@@ -115,11 +126,33 @@ public sealed class EditorSession
     public void ApplySimplified(SimplifyResult result)
     {
         if (Document.HasPattern) PushUndo();
+
+        // linie i kierunki zostają: inna dokładność = inna skala obrazu roboczego, a nici dobieramy najbliższe nowe
+        if (Document.Width > 0 && result.Width > 0 && result.Width != Document.Width)
+        {
+            float k = result.Width / (float)Document.Width;
+            foreach (var l in Document.Lines)
+                for (int i = 0; i < l.Points.Count; i++) l.Points[i] *= k;
+            foreach (var h in Document.StitchHints) h.Point *= k;
+        }
+        if (Document.Lines.Count > 0 && result.Palette.Count > 0)
+        {
+            var newLab = result.Palette.Select(p => p.Color.ToLab()).ToArray();
+            foreach (var l in Document.Lines)
+            {
+                var own = l.Color >= 0 && l.Color < Document.Palette.Count ? Document.Palette[l.Color].Color.ToLab() : newLab[0];
+                l.Color = Enumerable.Range(0, newLab.Length)
+                    .OrderBy(i => result.Palette[i].IsFabric ? 1 : 0)
+                    .ThenBy(i => ColorMath.DeltaE2000(own, newLab[i]))
+                    .First();
+            }
+        }
+
         Document.Width = result.Width;
         Document.Height = result.Height;
         Document.Labels = result.Labels;
         Document.Palette = result.Palette;
-        Raise(ChangeKind.Labels | ChangeKind.PaletteColors | ChangeKind.PaletteStructure);
+        Raise(Everything);
     }
 
     // ------------------------------------------------------------------ malowanie
@@ -177,6 +210,68 @@ public sealed class EditorSession
         return true;
     }
 
+    // ------------------------------------------------------------------ linie detali
+
+    /// <summary>
+    /// Dodaje linię detalu z pociągnięcia myszą (wygładzoną). Zwraca false dla samego kliknięcia albo złego koloru.
+    /// </summary>
+    public bool AddLine(IReadOnlyList<Vector2> rawPoints, int color)
+    {
+        if (!ValidColor(color) || rawPoints.Count < 2) return false;
+        var points = DetailLine.Smooth(rawPoints);
+        var max = new Vector2(Document.Width, Document.Height);
+        for (int i = 0; i < points.Count; i++) points[i] = Vector2.Clamp(points[i], Vector2.Zero, max);
+        var line = new DetailLine { Points = points, Color = color };
+        if (points.Count < 2 || line.Length < 1.5f) return false;
+        PushUndo();
+        Document.Lines.Add(line);
+        Raise(ChangeKind.Annotations);
+        return true;
+    }
+
+    public bool DeleteLine(int index)
+    {
+        if (index < 0 || index >= Document.Lines.Count) return false;
+        PushUndo();
+        Document.Lines.RemoveAt(index);
+        Raise(ChangeKind.Annotations);
+        return true;
+    }
+
+    public bool SetLineColor(int index, int color)
+    {
+        if (index < 0 || index >= Document.Lines.Count || !ValidColor(color) || Document.Lines[index].Color == color) return false;
+        PushUndo();
+        Document.Lines[index].Color = color;
+        Raise(ChangeKind.Annotations);
+        return true;
+    }
+
+    // ------------------------------------------------------------------ kierunek ściegu
+
+    /// <summary>
+    /// Ustawia kierunek ściegu obszaru pod <paramref name="point"/> (stopnie) albo — dla null — przywraca kierunek
+    /// automatyczny. Wcześniejsze ustawienia tego obszaru są zastępowane.
+    /// </summary>
+    public bool SetStitchDirection(Components components, Vector2 point, float? angle)
+    {
+        if (components.Map.Length != Document.Labels.Length) return false;
+        int RegionAt(Vector2 p)
+        {
+            int x = (int)MathF.Floor(p.X), y = (int)MathF.Floor(p.Y);
+            return x < 0 || y < 0 || x >= components.Width || y >= components.Height ? -1 : components.Map[y * components.Width + x];
+        }
+        int region = RegionAt(point);
+        if (region < 0) return false;
+        var same = Document.StitchHints.Where(h => RegionAt(h.Point) == region).ToList();
+        if (angle is null && same.Count == 0) return false;
+        PushUndo();
+        Document.StitchHints.RemoveAll(same.Contains);
+        if (angle is { } a) Document.StitchHints.Add(new StitchHint { Point = point, Angle = StitchPlan.Normalize(a) });
+        Raise(ChangeKind.Annotations);
+        return true;
+    }
+
     // ------------------------------------------------------------------ paleta
 
     private bool ValidColor(int index) => index >= 0 && index < Document.Palette.Count;
@@ -207,6 +302,19 @@ public sealed class EditorSession
         Raise(ChangeKind.PaletteColors);
     }
 
+    /// <summary>
+    /// Kolor tła (dominujący na brzegach obrazka) oznacza jako tkaninę albo zdejmuje to oznaczenie.
+    /// Zwraca indeks koloru tła albo −1, gdy obrazek nie ma wyraźnego tła.
+    /// </summary>
+    public int SetBackgroundFabric(bool fabric)
+    {
+        if (!Document.HasPattern) return -1;
+        int bg = LabelOps.DominantBorderLabel(Document.Labels, Document.Width, Document.Height);
+        if (!ValidColor(bg)) return -1;
+        SetFabric(bg, fabric);
+        return bg;
+    }
+
     /// <summary>Nowy kolor na końcu palety. Zwraca jego indeks (−1, gdy paleta jest pełna).</summary>
     public int AddColor(Rgb color, string? name = null)
     {
@@ -217,7 +325,7 @@ public sealed class EditorSession
         return Document.Palette.Count - 1;
     }
 
-    /// <summary>Łączy kolor <paramref name="from"/> z <paramref name="into"/> (wszystkie jego plamy dostają drugi kolor).</summary>
+    /// <summary>Łączy kolor <paramref name="from"/> z <paramref name="into"/> (wszystkie jego plamy i linie dostają drugi kolor).</summary>
     public bool MergeColor(int from, int into)
     {
         if (!ValidColor(from) || !ValidColor(into) || from == into) return false;
@@ -226,9 +334,10 @@ public sealed class EditorSession
         var map = IdentityMap();
         map[from] = (byte)into;
         LabelOps.Remap(labels, map);
+        RemapLines(map);
         Document.Labels = labels;
         RemoveFromPalette(from);
-        Raise(ChangeKind.Labels | ChangeKind.PaletteStructure | ChangeKind.PaletteColors);
+        Raise(ChangeKind.Labels | ChangeKind.PaletteStructure | ChangeKind.PaletteColors | ChangeKind.Annotations);
         return true;
     }
 
@@ -282,11 +391,11 @@ public sealed class EditorSession
         return true;
     }
 
-    /// <summary>Usuwa kolory, które nie występują już na wzorze (np. po zamalowaniu).</summary>
+    /// <summary>Usuwa kolory, które nie występują już na wzorze ani w liniach detali (np. po zamalowaniu).</summary>
     public int RemoveUnusedColors()
     {
         var hist = LabelOps.Histogram(Document.Labels, Document.Palette.Count);
-        var used = Enumerable.Range(0, Document.Palette.Count).Where(i => hist[i] > 0).ToList();
+        var used = Enumerable.Range(0, Document.Palette.Count).Where(i => hist[i] > 0 || Document.Lines.Any(l => l.Color == i)).ToList();
         int removed = Document.Palette.Count - used.Count;
         if (removed == 0 || used.Count == 0) return 0;
         PushUndo();
@@ -294,9 +403,10 @@ public sealed class EditorSession
         for (int i = 0; i < used.Count; i++) map[used[i]] = (byte)i;
         var labels = (byte[])Document.Labels.Clone();
         LabelOps.Remap(labels, map);
+        RemapLines(map);
         Document.Labels = labels;
         Document.Palette = used.Select(i => Document.Palette[i]).ToList();
-        Raise(ChangeKind.Labels | ChangeKind.PaletteStructure | ChangeKind.PaletteColors);
+        Raise(ChangeKind.Labels | ChangeKind.PaletteStructure | ChangeKind.PaletteColors | ChangeKind.Annotations);
         return removed;
     }
 
@@ -308,9 +418,10 @@ public sealed class EditorSession
         for (int i = 0; i < order.Count; i++) map[order[i]] = (byte)i;
         var labels = (byte[])Document.Labels.Clone();
         LabelOps.Remap(labels, map);
+        RemapLines(map);
         Document.Labels = labels;
         Document.Palette = order.Select(i => Document.Palette[i]).ToList();
-        Raise(ChangeKind.Labels | ChangeKind.PaletteStructure | ChangeKind.PaletteColors);
+        Raise(ChangeKind.Labels | ChangeKind.PaletteStructure | ChangeKind.PaletteColors | ChangeKind.Annotations);
     }
 
     /// <summary>Usuwa wpis palety (już nieużywany) i przesuwa indeksy kolejnych.</summary>
@@ -319,7 +430,14 @@ public sealed class EditorSession
         var map = IdentityMap();
         for (int i = index + 1; i < Document.Palette.Count; i++) map[i] = (byte)(i - 1);
         LabelOps.Remap(Document.Labels, map);
+        RemapLines(map);
         Document.Palette.RemoveAt(index);
+    }
+
+    private void RemapLines(byte[] map)
+    {
+        foreach (var l in Document.Lines)
+            if (l.Color >= 0 && l.Color < map.Length) l.Color = map[l.Color];
     }
 
     private static byte[] IdentityMap()

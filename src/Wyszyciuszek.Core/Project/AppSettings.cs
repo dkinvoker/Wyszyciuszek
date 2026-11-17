@@ -22,6 +22,10 @@ public sealed class AppSettings
     public SimplifyOptions LastOptions { get; set; } = new();
     public PrintSettings LastPrint { get; set; } = new();
     public bool CheckUpdates { get; set; } = true;
+    /// <summary>Skalibrowana skala projektora/ekranu: fizyczne piksele na milimetr, osobno dla każdego ekranu.</summary>
+    public Dictionary<string, double> ScreenScale { get; set; } = [];
+    /// <summary>Projektor: jasne linie na czarnym tle (true) albo ciemne na białym — ekran jako podświetlana szyba.</summary>
+    public bool ProjectorDark { get; set; } = true;
     /// <summary>Wersja, o której użytkownik powiedział „nie teraz”.</summary>
     public string? SkippedVersion { get; set; }
 

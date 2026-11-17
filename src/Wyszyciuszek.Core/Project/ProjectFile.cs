@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Numerics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Wyszyciuszek.Core.Imaging;
@@ -13,20 +14,33 @@ namespace Wyszyciuszek.Core.Project;
 public static class ProjectFile
 {
     public const string Extension = ".wyszycie";
-    public const int FormatVersion = 1;
+    /// <summary>
+    /// Najnowszy format: 2 = linie detali i kierunki ściegu. Projekt bez nich zapisuje się jako 1, więc otworzy go też
+    /// starsza wersja programu.
+    /// </summary>
+    public const int FormatVersion = 2;
 
     public static void Save(PatternDocument doc, Stream output)
     {
         using var zip = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true);
         var dto = new ProjectDto
         {
-            Format = FormatVersion,
+            Format = doc.Lines.Count > 0 || doc.StitchHints.Count > 0 ? 2 : 1,
             Title = doc.Title,
             Width = doc.Width,
             Height = doc.Height,
             Palette = doc.Palette.Select(p => new PaletteDto { Color = p.Color.Hex, Name = p.Name, Fabric = p.IsFabric }).ToList(),
             Options = doc.Options,
             Print = doc.Print,
+            Lines = doc.Lines.Count == 0 ? null : doc.Lines.Select(l => new LineDto
+            {
+                Color = l.Color,
+                Points = l.Points.SelectMany(p => new[] { MathF.Round(p.X, 2), MathF.Round(p.Y, 2) }).ToArray(),
+            }).ToList(),
+            Stitches = doc.StitchHints.Count == 0 ? null : doc.StitchHints.Select(h => new StitchDto
+            {
+                X = MathF.Round(h.Point.X, 2), Y = MathF.Round(h.Point.Y, 2), Angle = MathF.Round(h.Angle, 1),
+            }).ToList(),
         };
         var entry = zip.CreateEntry("project.json", CompressionLevel.Optimal);
         using (var s = entry.Open()) JsonSerializer.Serialize(s, dto, ProjectJson.Default.ProjectDto);
@@ -74,6 +88,14 @@ public static class ProjectFile
             }).ToList(),
             Options = dto.Options ?? new SimplifyOptions(),
             Print = dto.Print ?? new PrintSettings(),
+            Lines = (dto.Lines ?? [])
+                .Where(l => l.Points is { Length: >= 4 } && l.Color >= 0 && l.Color < (dto.Palette?.Count ?? 0))
+                .Select(l => new DetailLine
+                {
+                    Color = l.Color,
+                    Points = Enumerable.Range(0, l.Points!.Length / 2).Select(i => new Vector2(l.Points[2 * i], l.Points[2 * i + 1])).ToList(),
+                }).ToList(),
+            StitchHints = (dto.Stitches ?? []).Select(s => new StitchHint { Point = new Vector2(s.X, s.Y), Angle = s.Angle }).ToList(),
         };
 
         if (zip.GetEntry("labels.bin") is { } labels)
@@ -125,6 +147,22 @@ internal sealed class ProjectDto
     public List<PaletteDto>? Palette { get; set; }
     public SimplifyOptions? Options { get; set; }
     public PrintSettings? Print { get; set; }
+    public List<LineDto>? Lines { get; set; }
+    public List<StitchDto>? Stitches { get; set; }
+}
+
+internal sealed class LineDto
+{
+    public int Color { get; set; }
+    /// <summary>x0, y0, x1, y1, … w pikselach obrazu roboczego.</summary>
+    public float[]? Points { get; set; }
+}
+
+internal sealed class StitchDto
+{
+    public float X { get; set; }
+    public float Y { get; set; }
+    public float Angle { get; set; }
 }
 
 internal sealed class PaletteDto

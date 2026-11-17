@@ -55,6 +55,27 @@ public static class Exporters
         sb.Append($"    <path fill=\"none\" stroke=\"{PatternComposer.Ink.Hex}\" stroke-width=\"{F(style.LineWidth)}\" stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"{an.Outline.ToSvgData()}\"/>\n");
         sb.Append("  </g>\n");
 
+        // linie detali — kolorem nici (Ink/Stitch zrobi z nich ścieg prosty)
+        if (doc.Lines.Count > 0)
+        {
+            var lineStyle = composer.PrintStyle(fullColor: true);
+            sb.Append($"  <g inkscape:groupmode=\"layer\" id=\"linie\" inkscape:label=\"Linie detali\"{transform}>\n");
+            var paths = composer.LinePaths;
+            for (int i = 0; i < paths.Length; i++)
+            {
+                if (paths[i].IsEmpty) continue;
+                int c = doc.Lines[i].Color;
+                var color = c >= 0 && c < doc.Palette.Count ? doc.Palette[c].Color : PatternComposer.Ink;
+                sb.Append($"    <path fill=\"none\" stroke=\"{color.Hex}\" stroke-width=\"{F(lineStyle.DetailWidth)}\" stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"{paths[i].ToSvgData()}\"/>\n");
+            }
+            sb.Append("  </g>\n");
+        }
+
+        // kierunek ściegu — warstwa ukryta (podpowiedź, nie do wyszycia)
+        sb.Append($"  <g inkscape:groupmode=\"layer\" id=\"kierunek\" inkscape:label=\"Kierunek ściegu\" style=\"display:none\"{transform}>\n");
+        composer.DrawArrows(new SvgPaths(sb), style with { Numbers = false }, new RectF(0, 0, an.Width, an.Height));
+        sb.Append("  </g>\n");
+
         // numery: SVG z napisami w odbiciu — liczymy pozycje sami, żeby tekst dało się normalnie edytować
         var numbers = new SvgNumbers(sb, doc.Print.Mirror ? an.Width : null);
         sb.Append("  <g inkscape:groupmode=\"layer\" id=\"numery\" inkscape:label=\"Numery\" style=\"display:inline\" font-family=\"Arial, Helvetica, sans-serif\" text-anchor=\"middle\">\n");
@@ -65,6 +86,23 @@ public static class Exporters
     }
 
     private static string Esc(string s) => SecurityElement.Escape(s) ?? "";
+
+    /// <summary>Zbiera tylko obrysy (bez przekształceń) jako elementy &lt;path&gt;.</summary>
+    private sealed class SvgPaths(StringBuilder sb) : IDrawSurface
+    {
+        public void PushTransform(Matrix3x2 transform) { }
+        public void PushClip(RectF rect) { }
+        public void Pop() { }
+        public void Fill(PathData path, Rgb color) { }
+        public void Text(string text, Vector2 baseline, float size, Rgb color, TextAnchor anchor = TextAnchor.Start, bool bold = false) { }
+
+        public void Stroke(PathData path, Rgb color, float width, float[]? dash = null)
+        {
+            if (path.IsEmpty) return;
+            sb.Append($"    <path fill=\"none\" stroke=\"{color.Hex}\" stroke-width=\"{width.ToString("0.###", CultureInfo.InvariantCulture)}\" ")
+              .Append($"stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"{path.ToSvgData()}\"/>\n");
+        }
+    }
 
     /// <summary>Zbiera tylko napisy (numery) z kompozytora jako elementy &lt;text&gt;.</summary>
     private sealed class SvgNumbers(StringBuilder sb, float? mirrorWidth) : IDrawSurface

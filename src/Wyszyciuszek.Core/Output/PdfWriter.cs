@@ -177,7 +177,8 @@ public sealed class PdfWriter
         {
             if (path.IsEmpty) return;
             var d = dash is { Length: > 0 } ? string.Join(" ", dash.Select(v => F(v))) : "";
-            W($"{Color(color)} RG {F(width)} w [{d}] 0 d\n");
+            // kreski z płaskimi końcami (jak w podglądzie Win2D), ciągłe linie z okrągłymi
+            W($"{Color(color)} RG {F(width)} w {(d.Length > 0 ? 0 : 1)} J [{d}] 0 d\n");
             Path(path);
             W("S\n");
         }

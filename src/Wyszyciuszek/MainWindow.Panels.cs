@@ -36,6 +36,7 @@ public sealed partial class MainWindow
             SourceCombo.SelectedIndex = o.Source == PaletteSource.MyThreads ? 1 : 0;
             int q = Array.IndexOf(SimplifyOptions.WorkingSizes, o.WorkingSize);
             QualityCombo.SelectedIndex = q >= 0 ? q : 1;
+            BackgroundCheck.IsChecked = o.BackgroundAsFabric;
             UpdateSliderLabels();
 
             WidthBox.Value = Math.Round(p.WidthMm / 10, 1);
@@ -47,6 +48,7 @@ public sealed partial class MainWindow
             LegendCheck.IsChecked = p.Legend;
             CenterMarksCheck.IsChecked = p.CenterMarks;
             FrameCheck.IsChecked = p.Frame;
+            ArrowsCheck.IsChecked = p.StitchArrows;
             TintSlider.Value = Math.Round(p.Tint * 100);
             LineWidthSlider.Value = p.LineWidthMm;
             FitHoopButton.IsEnabled = Hoops.Get(p.Hoop) is not null;
@@ -116,6 +118,33 @@ public sealed partial class MainWindow
         Doc.Options.WorkingSize = SimplifyOptions.WorkingSizes[QualityCombo.SelectedIndex];
         RememberOptions();
         ScheduleSimplify();
+    }
+
+    /// <summary>
+    /// „Tło to tkanina” — opcja zapamiętywana dla kolejnych obrazków. Na gotowym wzorze działa od razu (do cofnięcia),
+    /// bez ponownego upraszczania.
+    /// </summary>
+    private void BackgroundCheck_Click(object sender, RoutedEventArgs e)
+    {
+        bool on = BackgroundCheck.IsChecked == true;
+        if (Doc is null)
+        {
+            AppInfo.Settings.LastOptions.BackgroundAsFabric = on;
+            return;
+        }
+        Doc.Options.BackgroundAsFabric = on;
+        RememberOptions();
+        if (_session is null || !Doc.HasPattern) return;
+        int bg = _session.SetBackgroundFabric(on);
+        if (bg < 0)
+        {
+            if (on) ShowToast("Nie widzę jednolitego tła", "Żaden kolor nie zajmuje większości brzegów obrazka. Tkaninę możesz wskazać ręcznie na liście nici (menu ⋯ przy nici).");
+            return;
+        }
+        var name = Doc.Palette[bg].Name;
+        ShowToast(on ? $"Tło „{name}” to teraz tkanina" : $"„{name}” znowu do szycia",
+            on ? "Ten kolor nie ma numeru i nie trzeba go szyć. Cofniesz to Ctrl+Z albo odznaczając opcję." : "Kolor tła dostał z powrotem numer nici.",
+            InfoBarSeverity.Success);
     }
 
     private async void Reroll_Click(object sender, RoutedEventArgs e)
@@ -206,6 +235,7 @@ public sealed partial class MainWindow
         p.Legend = LegendCheck.IsChecked == true;
         p.CenterMarks = CenterMarksCheck.IsChecked == true;
         p.Frame = FrameCheck.IsChecked == true;
+        p.StitchArrows = ArrowsCheck.IsChecked == true;
     });
 
     private void PrintSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -244,6 +274,9 @@ public sealed partial class MainWindow
             int un = composer.CountUnnumbered(composer.PrintStyle());
             if (un > 0) lines.Add($"{un} małych obszarów bez numeru — powiększ wzór albo zmniejsz szczegóły.");
         }
+        var usage = ThreadEstimator.Total(ThreadEstimator.PerColor(d, _analysis));
+        if (usage.Meters > 0)
+            lines.Add($"Nici ok. {ThreadEstimator.Meters(usage.Meters)} · szycie ok. {ThreadEstimator.Duration(usage.Minutes)} (orientacyjnie, gęste wypełnienie).");
         lines.Add($"1 piksel obrazu roboczego = {d.MmPerPixel:0.00} mm na tkaninie.");
         PrintInfo.Text = string.Join("\n", lines);
         SyncSizeBoxes();

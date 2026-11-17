@@ -18,6 +18,7 @@ internal sealed class GeometryCache : IDisposable
 {
     private const int CacheThreshold = 24;
     private readonly Dictionary<PathData, CanvasGeometry> _map = new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<PathData> _used = new(ReferenceEqualityComparer.Instance);
 
     public CanvasGeometry Get(ICanvasResourceCreator rc, PathData path, out bool owned)
     {
@@ -27,8 +28,25 @@ internal sealed class GeometryCache : IDisposable
             return Build(rc, path);
         }
         owned = false;
+        _used.Add(path);
         if (!_map.TryGetValue(path, out var g)) _map[path] = g = Build(rc, path);
         return g;
+    }
+
+    /// <summary>
+    /// Koniec klatki: zwalnia geometrie nieużyte w tej klatce (np. stare linie detali po zmianie), żeby pamięć nie rosła.
+    /// </summary>
+    public void EndFrame()
+    {
+        if (_map.Count > _used.Count)
+        {
+            foreach (var key in _map.Keys.Where(k => !_used.Contains(k)).ToList())
+            {
+                _map[key].Dispose();
+                _map.Remove(key);
+            }
+        }
+        _used.Clear();
     }
 
     public static CanvasGeometry Build(ICanvasResourceCreator rc, PathData path)
@@ -65,6 +83,7 @@ internal sealed class GeometryCache : IDisposable
     {
         foreach (var g in _map.Values) g.Dispose();
         _map.Clear();
+        _used.Clear();
     }
 
     public void Dispose() => Clear();

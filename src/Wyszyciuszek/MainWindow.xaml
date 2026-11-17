@@ -109,6 +109,12 @@
                                 </MenuFlyout>
                             </DropDownButton.Flyout>
                         </DropDownButton>
+                        <Button x:Name="ProjectorButton" Style="{StaticResource BarButtonStyle}" Click="Projector_Click" ToolTipService.ToolTip="Tryb projektora (F5) — wzór na pełnym ekranie w skali 1:1, do odrysowania na tkaninie">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE7F4;" FontSize="15" />
+                                <TextBlock Text="Projektor" />
+                            </StackPanel>
+                        </Button>
                         <Button x:Name="PrintButton" Style="{StaticResource AccentButtonStyle}" Padding="14,6" MinHeight="34" CornerRadius="6" Click="Print_Click" ToolTipService.ToolTip="Drukuj wzór w skali 1:1 (Ctrl+P)">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <FontIcon Glyph="&#xE749;" FontSize="15" />
@@ -149,10 +155,18 @@
                                           ToolTipService.ToolTip="Pipeta (I) — weź kolor z wzoru · prawy przycisk myszy działa tak samo w każdym narzędziu">
                                 <PathIcon Data="M19.6,4.4 C20.6,5.4 20.6,7 19.6,8 L16.9,10.7 L18.3,12.1 L16.9,13.5 L15.5,12.1 L7.6,20 L4,20 L4,16.4 L11.9,8.5 L10.5,7.1 L11.9,5.7 L13.3,7.1 L16,4.4 C17,3.4 18.6,3.4 19.6,4.4 Z M13.3,9.9 L6,17.2 L6,18 L6.8,18 L14.1,10.7 Z" />
                             </ToggleButton>
+                            <ToggleButton x:Name="ToolLine" Style="{StaticResource ToolToggleStyle}" Click="Tool_Click" Tag="Line"
+                                          ToolTipService.ToolTip="Linia detalu (L) — oczy, wąsy, łodyżki: przeszycie samą linią wybraną nicią · Shift = prosta">
+                                <PathIcon Data="M2.2,17.4 C4.6,8.6 9.8,6.6 12.6,11.8 C14.4,15.2 16.9,15.3 20.1,7.6 L22,8.4 C18.4,17.4 13.9,18.6 10.8,12.8 C8.7,8.9 5.7,10.9 4.2,17.9 Z M3.2,21.6 C4.3,21.6 5.2,20.7 5.2,19.6 C5.2,18.5 4.3,17.6 3.2,17.6 C2.1,17.6 1.2,18.5 1.2,19.6 C1.2,20.7 2.1,21.6 3.2,21.6 Z" />
+                            </ToggleButton>
+                            <ToggleButton x:Name="ToolDirection" Style="{StaticResource ToolToggleStyle}" Click="Tool_Click" Tag="Direction"
+                                          ToolTipService.ToolTip="Kierunek ściegu (D) — przeciągnij w obszarze tak, jak chcesz szyć · klik przywraca kierunek automatyczny">
+                                <PathIcon Data="M3,21 L3.6,13.4 L6.4,16.2 L16.2,6.4 L13.4,3.6 L21,3 L20.4,10.6 L17.6,7.8 L7.8,17.6 L10.6,20.4 Z" />
+                            </ToggleButton>
                             <Rectangle Height="1" Margin="6,4" Fill="{StaticResource HaftLineBrush}" />
                             <!-- aktualny kolor pędzla -->
                             <Border x:Name="PaintSwatch" Width="30" Height="30" CornerRadius="15" Margin="5,2,5,4" BorderThickness="2"
-                                    BorderBrush="{StaticResource HaftTextBrush}" Background="White" ToolTipService.ToolTip="Kolor pędzla i wiaderka — wybierz na liście nici">
+                                    BorderBrush="{StaticResource HaftTextBrush}" Background="White" ToolTipService.ToolTip="Nić pędzla, wiaderka i linii — wybierz na liście nici">
                                 <TextBlock x:Name="PaintNumber" Text="1" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                         </StackPanel>
@@ -180,6 +194,11 @@
                             <ToggleButton x:Name="OutlineToggle" Style="{StaticResource ViewToggleStyle}" Padding="8,5" Click="OutlineToggle_Click" ToolTipService.ToolTip="Pokaż kontury w widoku kolorów">
                                 <Viewbox Width="15" Height="15">
                                     <PathIcon Data="M3,12 C3,7 7,3 12,3 C17,3 21,7 21,12 C21,17 17,21 12,21 C7,21 3,17 3,12 Z M5.2,12 C5.2,15.8 8.2,18.8 12,18.8 C15.8,18.8 18.8,15.8 18.8,12 C18.8,8.2 15.8,5.2 12,5.2 C8.2,5.2 5.2,8.2 5.2,12 Z" />
+                                </Viewbox>
+                            </ToggleButton>
+                            <ToggleButton x:Name="ArrowToggle" Style="{StaticResource ViewToggleStyle}" Padding="8,5" Click="ArrowToggle_Click" ToolTipService.ToolTip="Pokaż kierunek ściegu w widoku kolorów">
+                                <Viewbox Width="15" Height="15">
+                                    <PathIcon Data="M3,21 L3.6,13.4 L6.4,16.2 L16.2,6.4 L13.4,3.6 L21,3 L20.4,10.6 L17.6,7.8 L7.8,17.6 L10.6,20.4 Z" />
                                 </Viewbox>
                             </ToggleButton>
                         </StackPanel>
@@ -332,6 +351,8 @@
                                             <ComboBoxItem Content="Bardzo dokładnie" />
                                         </ComboBox>
                                     </Grid>
+                                    <CheckBox x:Name="BackgroundCheck" Content="Tło to tkanina (nie szyję go)" Margin="0,6,0,0" Click="BackgroundCheck_Click"
+                                              ToolTipService.ToolTip="Kolor, który zajmuje większość brzegów obrazka, od razu dostaje oznaczenie „tkanina” — bez numeru i bez szycia. Zawsze możesz to zmienić na liście nici." />
                                     <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">
                                         <Button Click="Cleanup_Click" ToolTipService.ToolTip="Wtapia drobne plamki (także te domalowane) w sąsiednie obszary">
                                             <TextBlock Text="Usuń drobiazgi" FontSize="12" />
@@ -418,6 +439,8 @@
                                         <CheckBox x:Name="CenterMarksCheck" Content="Znaczniki środka" Checked="PrintCheck_Changed" Unchecked="PrintCheck_Changed" />
                                         <CheckBox x:Name="FrameCheck" Grid.Column="1" Content="Ramka" Checked="PrintCheck_Changed" Unchecked="PrintCheck_Changed" />
                                     </Grid>
+                                    <CheckBox x:Name="ArrowsCheck" Content="Kierunek ściegu (strzałki)" Checked="PrintCheck_Changed" Unchecked="PrintCheck_Changed"
+                                              ToolTipService.ToolTip="Czerwone strzałki w obszarach: w którą stronę prowadzić wypełnienie. Kierunek zmienisz narzędziem „Kierunek ściegu” (D)." />
                                     <Slider x:Name="TintSlider" Header="Podbarwienie kolorem nici" Minimum="0" Maximum="100" StepFrequency="5" Value="25" ValueChanged="PrintSlider_ValueChanged" />
                                     <Slider x:Name="LineWidthSlider" Header="Grubość linii (mm)" Minimum="0.1" Maximum="1.5" StepFrequency="0.05" Value="0.4" ValueChanged="PrintSlider_ValueChanged" />
                                     <Border Background="{StaticResource HaftBg1Brush}" CornerRadius="6" Padding="10,8">

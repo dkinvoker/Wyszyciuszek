@@ -146,6 +146,8 @@ public sealed partial class MainWindow
         root.Tapped += (_, e) =>
         {
             if (e.OriginalSource is DependencyObject d && IsInside(d, name)) return;
+            // zaznaczona linia detalu dostaje klikniętą nić
+            if (View.SelectedLine >= 0 && _session is not null && _session.SetLineColor(View.SelectedLine, row.Index)) UpdateHint();
             SetPaintColor(row.Index);
         };
         return row;
@@ -209,7 +211,7 @@ public sealed partial class MainWindow
         {
             if (j == index) continue;
             int target = j;
-            var item = new MenuFlyoutItem { Text = $"{j + 1}. {palette[j].Name}" };
+            var item = new MenuFlyoutItem { Text = $"{Doc.ThreadLabel(j)}. {palette[j].Name}" };
             item.Click += (_, _) =>
             {
                 if (_session?.MergeColor(index, target) == true) _editedSinceSimplify = true;
@@ -260,16 +262,18 @@ public sealed partial class MainWindow
         try
         {
             var stats = AnalysisIsCurrent ? _analysis : null;
+            var numbers = Doc.ThreadNumbers();
+            var usage = stats is null ? null : ThreadEstimator.PerColor(Doc, stats);
             double total = Math.Max(1, Doc.Width * (double)Doc.Height);
             for (int i = 0; i < _rows.Count; i++)
             {
                 var e = Doc.Palette[i];
                 var row = _rows[i];
                 row.Index = i;
-                row.Number.Text = e.IsFabric ? "T" : (i + 1).ToString();
+                row.Number.Text = e.IsFabric ? "T" : numbers[i].ToString();
                 row.Badge.Background = e.IsFabric ? Res("HaftBg3Brush") : Res("HaftLinenBrush");
                 row.Number.Foreground = e.IsFabric ? Res("HaftTextDimBrush") : new SolidColorBrush(Color.FromArgb(255, 21, 23, 26));
-                ToolTipService.SetToolTip(row.Badge, e.IsFabric ? "Tkanina — nie szyjemy" : $"Szyjesz jako {i + 1}.");
+                ToolTipService.SetToolTip(row.Badge, e.IsFabric ? "Tkanina — nie szyjemy (bez numeru)" : $"Szyjesz jako {numbers[i]}.");
                 row.SwatchFill.Background = Brush(e.Color);
                 if (row.PickerOpen)
                 {
@@ -283,7 +287,9 @@ public sealed partial class MainWindow
                     double share = stats.ColorArea[i] / total;
                     row.Stats.Text = share < 0.001 && stats.ColorArea[i] > 0 ? "<0,1%" : $"{share * 100:0.#}%";
                     double cm2 = stats.ColorArea[i] * Doc.MmPerPixel * Doc.MmPerPixel / 100;
-                    ToolTipService.SetToolTip(row.Stats, $"{stats.ColorRegionCount[i]} obszarów · ok. {cm2:0.#} cm²");
+                    var thread = usage is not null && usage[i].Meters > 0 ? $" · nici ok. {ThreadEstimator.Meters(usage[i].Meters)}" : "";
+                    var lines = Doc.Lines.Count(l => l.Color == i) is var ln and > 0 ? $" · linie detali: {ln}" : "";
+                    ToolTipService.SetToolTip(row.Stats, $"{stats.ColorRegionCount[i]} obszarów · ok. {cm2:0.#} cm²{lines}{thread}");
                 }
             }
             int stitched = Doc.Palette.Count(p => !p.IsFabric);

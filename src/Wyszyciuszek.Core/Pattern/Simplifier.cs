@@ -53,6 +53,8 @@ public static class Simplifier
 
         Normalize(labels, palette);
         MakeNamesUnique(palette);
+        if (options.BackgroundAsFabric && LabelOps.DominantBorderLabel(labels, w, h) is var bg and >= 0 && bg < palette.Count)
+            palette[bg].IsFabric = true;
         return new SimplifyResult(labels, w, h, palette);
     }
 
